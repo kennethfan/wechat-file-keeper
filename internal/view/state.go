@@ -36,6 +36,9 @@ type State struct {
 
 	// all 是未经筛选的全部条目。
 	all []model.Entry
+
+	// collapsed 记录各月份的折叠状态，跨分类切换保留。
+	collapsed map[string]bool
 }
 
 // NewState 由扫描结果构建初始状态。

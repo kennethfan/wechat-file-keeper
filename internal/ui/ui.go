@@ -136,43 +136,37 @@ func (a *App) build() {
 		a.updateFooter()
 	}
 
-	// 右侧：条目表，带勾选框。
+	// 右侧：按月分组的条目列表。
+	// 组头行与条目行混在同一个 List 里，靠 a.displayRows 展开得到。
 	a.entryList = widget.NewList(
-		func() int { return len(a.state.Rows) },
+		func() int { return len(a.displayRows()) },
 		func() fyne.CanvasObject {
 			return container.NewHBox(
 				widget.NewCheck("", nil),
 				widget.NewLabel(""),
+				widget.NewButton("", nil),
 			)
 		},
 		func(id widget.ListItemID, obj fyne.CanvasObject) {
-			if id < 0 || id >= len(a.state.Rows) {
+			rows := a.displayRows()
+			if id < 0 || id >= len(rows) {
 				return
 			}
-			row := a.state.Rows[id]
+			item := rows[id]
 			box := obj.(*fyne.Container)
 			check := box.Objects[0].(*widget.Check)
 			label := box.Objects[1].(*widget.Label)
+			toggle := box.Objects[2].(*widget.Button)
 
+			// 先解绑回调再设状态，避免 SetChecked 触发回调造成反复切换。
 			check.OnChanged = nil
-			check.SetChecked(row.Selected)
-			check.OnChanged = func(checked bool) {
-				// 只在状态确实不同时翻转，避免 Refresh 触发回调导致反复切换。
-				if checked != a.state.Rows[id].Selected {
-					a.state.Toggle(id)
-					a.updateFooter()
-				}
-			}
+			toggle.OnTapped = nil
 
-			marker := ""
-			if row.Entry.IsOrphanThumbnail {
-				marker = "  [孤儿缩略图]"
+			if item.isHeader {
+				a.renderGroupHeader(check, label, toggle, item.group)
+				return
 			}
-			label.SetText(fmt.Sprintf("%-10s %-9s %s%s",
-				format.Bytes(row.Entry.Size),
-				row.Entry.Month,
-				filepath.Base(row.Entry.Path),
-				marker))
+			a.renderEntryRow(check, label, toggle, item.rowIndex, item.row)
 		},
 	)
 
@@ -382,4 +376,112 @@ func (a *App) onLibrarySelected(choice string) {
 	a.entryList.Refresh()
 	a.statusLabel.SetText("已切换账号，正在扫描…")
 	a.refresh()
+}
+
+// displayItem 是列表里的一行：要么是组头，要么是条目。
+type displayItem struct {
+	// isHeader 为 true 表示这是组头行。
+	isHeader bool
+	// group 在组头行有效。
+	group view.Group
+	// row 在条目行有效。
+	row view.Row
+	// rowIndex 是该条目在 state.Rows 中的下标，勾选时用。
+	rowIndex int
+}
+
+// displayRows 把分组结果展开成扁平的行列表。
+//
+// 折叠的组只贡献组头一行；展开的组贡献组头 + 全部条目。
+// 条目行携带它在 state.Rows 里的真实下标，这样勾选操作的
+// 语义与逐行勾选完全一致。
+func (a *App) displayRows() []displayItem {
+	groups := a.state.Groups()
+	items := make([]displayItem, 0, len(a.state.Rows)+len(groups))
+	for _, g := range groups {
+		items = append(items, displayItem{isHeader: true, group: g})
+		if g.Collapsed {
+			continue
+		}
+		for _, r := range g.Rows {
+			items = append(items, displayItem{
+				row:      r,
+				rowIndex: a.indexOfRow(r),
+			})
+		}
+	}
+	return items
+}
+
+// indexOfRow 在 state.Rows 中定位某条记录的下标。
+//
+// 用路径匹配而非指针比较：Row 是值类型，分组快照里的是副本。
+func (a *App) indexOfRow(target view.Row) int {
+	for i, r := range a.state.Rows {
+		if r.Entry.Path == target.Entry.Path {
+			return i
+		}
+	}
+	return -1
+}
+
+// renderGroupHeader 渲染组头：折叠按钮 + 三态勾选 + 月份与统计。
+func (a *App) renderGroupHeader(check *widget.Check, label *widget.Label, toggle *widget.Button, g view.Group) {
+	arrow := "▾"
+	if g.Collapsed {
+		arrow = "▸"
+	}
+	// Fyne 的 Check 没有三态，部分选中时同样打勾，但文字标出「部分」，
+	// 避免用户误以为整月已全选。
+	check.SetChecked(g.Selection() != view.SelectionNone)
+	partial := ""
+	if g.Selection() == view.SelectionPartial {
+		partial = "（部分）"
+	}
+	label.SetText(fmt.Sprintf("%s  ·  %d 项  ·  %s%s",
+		g.Month, g.Count(), format.Bytes(g.Bytes()), partial))
+	label.TextStyle = fyne.TextStyle{Bold: true}
+
+	month := g.Month
+	toggle.SetText(arrow)
+	toggle.OnTapped = func() {
+		a.state.ToggleGroup(month)
+		a.entryList.Refresh()
+	}
+	check.OnChanged = func(checked bool) {
+		a.state.SelectGroup(month, checked)
+		a.entryList.Refresh()
+		a.updateFooter()
+	}
+}
+
+// renderEntryRow 渲染一个条目行。
+func (a *App) renderEntryRow(check *widget.Check, label *widget.Label, toggle *widget.Button, rowIndex int, row view.Row) {
+	toggle.SetText("")
+	toggle.Hide()
+	label.TextStyle = fyne.TextStyle{}
+
+	if rowIndex < 0 {
+		check.SetChecked(false)
+		label.SetText("")
+		return
+	}
+	check.SetChecked(row.Selected)
+
+	idx := rowIndex
+	check.OnChanged = func(checked bool) {
+		if checked != a.state.Rows[idx].Selected {
+			a.state.Toggle(idx)
+			a.updateFooter()
+		}
+	}
+
+	marker := ""
+	if row.Entry.IsOrphanThumbnail {
+		marker = "  [孤儿缩略图]"
+	}
+	label.SetText(fmt.Sprintf("      %-10s %s%s",
+		format.Bytes(row.Entry.Size),
+		filepath.Base(row.Entry.Path),
+		marker))
 }
