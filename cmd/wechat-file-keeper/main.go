@@ -6,15 +6,19 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/kennethfan/wechat-file-keeper/internal/account"
 	"github.com/kennethfan/wechat-file-keeper/internal/cachestat"
+	"github.com/kennethfan/wechat-file-keeper/internal/clean"
 	"github.com/kennethfan/wechat-file-keeper/internal/dup"
 	"github.com/kennethfan/wechat-file-keeper/internal/format"
+	"github.com/kennethfan/wechat-file-keeper/internal/guard"
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
 	"github.com/kennethfan/wechat-file-keeper/internal/scan"
+	"github.com/kennethfan/wechat-file-keeper/internal/trash"
 )
 
 // usage 打印命令帮助。
@@ -26,13 +30,17 @@ func usage() {
   wechat-file-keeper list [选项]                    列出条目，可按分类与大小筛选
   wechat-file-keeper dup                           列出真重复分组
   wechat-file-keeper cache                         显示图片缓存年份分布
+  wechat-file-keeper clean [选项]                   把选中项移入废纸篓（默认仅预览）
 
 选项:
   --root <路径>        指定微信数据根目录（默认为本机标准位置）
   --lib <路径>         直接指定账号库目录，跳过自动发现
-  --category <分类>    list 用：视频 / 文档 / 压缩包 / 其他 / 图片缓存
-  --min-size <大小>    list 用：最小字节数，支持 100MB / 1GB 写法
+  --category <分类>    list/clean 用：视频 / 文档 / 压缩包 / 其他 / 图片缓存
+  --min-size <大小>    list/clean 用：最小字节数，支持 100MB / 1GB 写法
   --limit <n>          list 用：最多显示条数（默认 30）
+  --orphans            clean 用：只清理孤儿缩略图
+  --include-cache      clean 用：允许清理图片缓存（本地唯一副本，谨慎）
+  --yes                clean 用：确认执行，否则只打印计划
   -h, --help           显示本帮助
 `)
 }
@@ -58,6 +66,9 @@ func run(args []string) error {
 	category := fs.String("category", "", "按分类筛选")
 	minSize := fs.String("min-size", "", "最小字节数，支持 100MB / 1GB 写法")
 	limit := fs.Int("limit", 30, "最多显示条数")
+	orphansOnly := fs.Bool("orphans", false, "只清理孤儿缩略图")
+	includeCache := fs.Bool("include-cache", false, "允许清理图片缓存")
+	yes := fs.Bool("yes", false, "确认执行")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -71,6 +82,8 @@ func run(args []string) error {
 		return runDup(*root, *libPath)
 	case "cache":
 		return runCache(*root, *libPath)
+	case "clean":
+		return runClean(*root, *libPath, *category, *minSize, *limit, *orphansOnly, *includeCache, *yes)
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -352,4 +365,100 @@ func runScan(root, libPath string) error {
 		format.Count(sp.EntryCount), format.Count(sp.FileCount))
 	fmt.Printf("扫描耗时  %s\n", res.Duration.Round(1e6))
 	return nil
+}
+
+// runClean 把选中项移入废纸篓。
+//
+// 默认只打印计划，必须加 --yes 才执行：清理是唯一会改动磁盘的操作，
+// 不该因为少打一个参数就动文件。
+func runClean(root, libPath, category, minSize string, limit int, orphansOnly, includeCache, yes bool) error {
+	threshold, err := parseSize(minSize)
+	if err != nil {
+		return err
+	}
+
+	lib, err := resolveLibrary(root, libPath)
+	if err != nil {
+		return err
+	}
+	res, err := scan.New(lib.Path).Run()
+	if err != nil {
+		return err
+	}
+
+	wantCat := strings.TrimSpace(category)
+	var picked []model.Entry
+	for _, e := range res.Entries {
+		if orphansOnly && !e.IsOrphanThumbnail {
+			continue
+		}
+		if wantCat != "" && string(e.Category) != wantCat {
+			continue
+		}
+		if e.Size < threshold {
+			continue
+		}
+		picked = append(picked, e)
+	}
+	scan.SortBySizeDesc(picked)
+	if limit > 0 && len(picked) > limit {
+		picked = picked[:limit]
+	}
+
+	if len(picked) == 0 {
+		fmt.Println("没有符合条件的条目。")
+		return nil
+	}
+
+	plan := clean.Build(clean.Options{
+		Entries:      picked,
+		MsgRoot:      filepath.Join(lib.Path, "msg"),
+		IncludeCache: includeCache,
+	})
+
+	// 预览：列出将要移动的条目。
+	fmt.Printf("账号库 %s\n\n", lib.WXID)
+	for _, e := range plan.Selected {
+		fmt.Printf("  %-10s %-10s %s\n", format.Bytes(e.Size), e.Month, shortName(e.Path))
+	}
+	if len(plan.Skipped) > 0 {
+		fmt.Println()
+		for _, s := range plan.Skipped {
+			fmt.Printf("  跳过 %s：%s\n", shortName(s.Entry.Path), s.Reason)
+		}
+	}
+	fmt.Println()
+	fmt.Printf("将移入废纸篓 %s 项，合计 %s\n",
+		format.Count(len(plan.Selected)), format.Bytes(plan.TotalBytes))
+
+	if !yes {
+		fmt.Println()
+		fmt.Println("这是预览。确认执行请加 --yes。")
+		return nil
+	}
+
+	weChatRunning := guard.IsWeChatRunning()
+	cleaner := trash.New(manifestDir(), lib.Path)
+	m, applyErr := clean.Apply(plan, filepath.Join(lib.Path, "msg"), weChatRunning, cleaner)
+	if applyErr != nil {
+		return applyErr
+	}
+
+	fmt.Println()
+	fmt.Printf("已移入废纸篓 %s 项，释放 %s\n",
+		format.Count(len(m.Records)), format.Bytes(m.TotalBytes()))
+	fmt.Printf("撤销：wechat-file-keeper undo\n")
+	return nil
+}
+
+// manifestDir 返回清理清单的存放目录。
+//
+// 放在用户的应用支持目录下，而不是账号库内部——清单不该混进
+// 被扫描的数据里，否则下次扫描会把它当成聊天文件。
+func manifestDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".wechat-file-keeper"
+	}
+	return filepath.Join(home, "Library", "Application Support", "wechat-file-keeper", "manifests")
 }
