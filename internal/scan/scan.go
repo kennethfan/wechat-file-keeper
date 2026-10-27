@@ -9,7 +9,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/kennethfan/wechat-file-keeper/internal/classify"
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
+	"github.com/kennethfan/wechat-file-keeper/internal/orphan"
 )
 
 // monthPattern 匹配微信的月份目录名，形如 "2025-02"。
@@ -17,7 +19,7 @@ var monthPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
 
 // Result 是一次扫描的完整产物。
 type Result struct {
-	// Entries 是全部条目，按实占大小降序排列前的原始顺序。
+	// Entries 是全部条目，含分类与缩略图标记。
 	Entries []model.Entry
 	// Space 是空间统计。
 	Space model.SpaceReport
@@ -89,6 +91,10 @@ func (s *Scanner) Run() (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("遍历消息区失败: %w", err)
 	}
+
+	// 分类与孤儿标记在扫描阶段完成，保证 CLI 与 GUI 拿到同一份结果。
+	classify.Apply(entries)
+	orphan.Mark(entries)
 
 	space := Summarize(entries)
 	return Result{
