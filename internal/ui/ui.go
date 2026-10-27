@@ -39,6 +39,11 @@ type App struct {
 	state  *view.State
 	lib    account.Library
 
+	// 账号库下拉。
+	librarySelect *widget.Select
+	// libraries 承载账号库列表与当前选择。
+	libraries *view.Libraries
+
 	// 左侧分类树。
 	categoryList *widget.List
 	categories   []model.Category
@@ -57,11 +62,18 @@ type App struct {
 
 // Run 启动界面。
 //
-// libPath 非空时直接使用该账号库；否则自动发现实占最大的账号库。
+// libPath 非空时锁定该账号库（不提供切换）；否则枚举全部账号库，
+// 默认打开实占最大的那个。
 func Run(root, libPath string) error {
-	lib, err := resolve(root, libPath)
-	if err != nil {
-		return err
+	dataRoot := root
+	if libPath == "" {
+		if dataRoot == "" {
+			defaultRoot, err := account.Root()
+			if err != nil {
+				return err
+			}
+			dataRoot = defaultRoot
+		}
 	}
 
 	a := app.New()
@@ -69,27 +81,22 @@ func Run(root, libPath string) error {
 	w := a.NewWindow("微信文件管家")
 	w.Resize(fyne.NewSize(1000, 680))
 
-	ui := &App{window: w, lib: lib, manifestDir: defaultManifestDir()}
+	ui := &App{window: w, manifestDir: defaultManifestDir()}
 	ui.build()
-	ui.refresh()
+
+	if libPath != "" {
+		// 显式指定账号库：跳过枚举，直接扫这一个。
+		ui.lib = account.Library{Path: libPath, WXID: filepath.Base(libPath)}
+		ui.librarySelect.SetOptions([]string{ui.lib.WXID})
+		ui.librarySelect.SetSelectedIndex(0)
+		ui.librarySelect.Disable()
+		ui.refresh()
+	} else {
+		ui.loadLibraries(dataRoot)
+	}
 
 	w.ShowAndRun()
 	return nil
-}
-
-// resolve 解析要打开的账号库。
-func resolve(root, libPath string) (account.Library, error) {
-	if libPath != "" {
-		return account.Library{Path: libPath, WXID: filepath.Base(libPath)}, nil
-	}
-	if root == "" {
-		defaultRoot, err := account.Root()
-		if err != nil {
-			return account.Library{}, err
-		}
-		root = defaultRoot
-	}
-	return account.Largest(root)
 }
 
 // defaultManifestDir 返回清理清单目录，与 CLI 保持一致。
@@ -169,8 +176,10 @@ func (a *App) build() {
 		},
 	)
 
-	// 顶部：账号库信息与刷新。
-	header := widget.NewLabel(fmt.Sprintf("账号库  %s", a.lib.WXID))
+	// 顶部：账号库下拉与刷新。
+	a.librarySelect = widget.NewSelect(nil, func(choice string) {
+		a.onLibrarySelected(choice)
+	})
 	refreshBtn := widget.NewButton("重新扫描", func() {
 		a.refresh()
 	})
@@ -187,12 +196,16 @@ func (a *App) build() {
 
 	split := container.NewHSplit(
 		container.NewBorder(widget.NewLabel("分类"), nil, nil, nil, a.categoryList),
-		container.NewBorder(header, nil, nil, nil, a.entryList),
+		a.entryList,
 	)
 	split.SetOffset(0.26)
 
-	// 顶部工具条放刷新按钮，底部放状态栏。
-	toolbar := container.NewHBox(refreshBtn)
+	// 顶部工具条放账号库下拉与刷新按钮，底部放状态栏。
+	toolbar := container.NewHBox(
+		widget.NewLabel("账号库"),
+		a.librarySelect,
+		refreshBtn,
+	)
 	footerBox := container.NewVBox(widget.NewSeparator(), footer)
 
 	a.window.SetContent(container.NewBorder(toolbar, footerBox, nil, nil, split))
@@ -203,6 +216,12 @@ func (a *App) build() {
 // 扫描放在后台 goroutine 里，避免大账号库把界面卡住。Fyne 要求所有
 // 控件操作都在主线程执行，因此后台协程里的界面更新一律经 fyne.Do 派发。
 func (a *App) refresh() {
+	// 账号库尚未确定时（枚举还没完成）不扫描，避免扫一个空路径。
+	if a.lib.Path == "" {
+		a.statusLabel.SetText("正在查找微信账号库…")
+		return
+	}
+
 	a.state.Scanning = true
 	a.state.WeChatRunning = guard.IsWeChatRunning()
 	a.updateFooter()
@@ -290,5 +309,77 @@ func (a *App) doClean(selected []model.Entry) {
 	dialog.ShowInformation("清理完成",
 		fmt.Sprintf("已移入废纸篓 %d 项，释放 %s", len(m.Records), format.Bytes(m.TotalBytes())),
 		a.window)
+	a.refresh()
+}
+
+// loadLibraries 枚举账号库并填充下拉，随后扫描默认账号库。
+//
+// 枚举要统计每个账号库的大小，可能耗时，因此放在后台协程；
+// 界面更新经 fyne.Do 派发回主线程。
+func (a *App) loadLibraries(root string) {
+	go func() {
+		options, err := enumerateLibraries(root)
+		fyne.Do(func() {
+			if err != nil {
+				a.statusLabel.SetText(fmt.Sprintf("未找到微信账号库：%v", err))
+				a.updateFooter()
+				return
+			}
+
+			a.libraries = view.NewLibraries(options)
+			labels := a.libraries.Labels()
+			a.librarySelect.Options = labels
+			a.librarySelect.Refresh()
+
+			if !a.libraries.Switchable() {
+				// 单账号库时禁用下拉，但仍显示识别到的账号。
+				a.librarySelect.Disable()
+			}
+			if current, ok := a.libraries.CurrentOption(); ok {
+				a.librarySelect.SetSelectedIndex(a.libraries.Current)
+				a.lib = current.Library
+				a.refresh()
+				return
+			}
+
+			// 没有任何账号库：显示空状态而不是崩溃。
+			a.state.SetEntries(nil)
+			a.statusLabel.SetText("未找到微信账号库，请确认微信已登录并产生过聊天文件")
+			a.entryList.Refresh()
+			a.categoryList.Refresh()
+			a.updateFooter()
+		})
+	}()
+}
+
+// onLibrarySelected 处理账号库切换。
+func (a *App) onLibrarySelected(choice string) {
+	if a.libraries == nil {
+		return
+	}
+	index := -1
+	for i, label := range a.libraries.Labels() {
+		if label == choice {
+			index = i
+			break
+		}
+	}
+	// 选择未真正变化时不做任何事，避免无谓重扫。
+	if !a.libraries.Select(index) {
+		return
+	}
+
+	current, ok := a.libraries.CurrentOption()
+	if !ok {
+		return
+	}
+	a.lib = current.Library
+
+	// 切换账号必须清空选择：上个账号的勾选对新账号毫无意义，
+	// 留着会让用户在不知情下删掉另一个账号的文件。
+	a.state.SelectAll(false)
+	a.state.SetEntries(nil)
+	a.entryList.Refresh()
+	a.statusLabel.SetText("已切换账号，正在扫描…")
 	a.refresh()
 }
