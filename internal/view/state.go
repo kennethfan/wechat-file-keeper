@@ -39,6 +39,10 @@ type State struct {
 
 	// collapsed 记录各月份的折叠状态，跨分类切换保留。
 	collapsed map[string]bool
+
+	// rowIndex 把条目路径映射到 Rows 下标，避免每次查下标都线性扫描。
+	// 界面上每个可见格子都要查一次，线性扫描会退化成 O(n²)。
+	rowIndex map[string]int
 }
 
 // NewState 由扫描结果构建初始状态。
@@ -71,9 +75,21 @@ func (s *State) rebuild() {
 	})
 
 	s.Rows = make([]Row, len(matched))
+	s.rowIndex = make(map[string]int, len(matched))
 	for i, e := range matched {
 		s.Rows[i] = Row{Entry: e}
+		s.rowIndex[e.Path] = i
 	}
+}
+
+// IndexOf 返回条目路径在当前视图中的行下标，不存在时返回 -1。
+//
+// 走 map 查找而非线性扫描：这是渲染热路径，必须 O(1)。
+func (s *State) IndexOf(path string) int {
+	if i, ok := s.rowIndex[path]; ok {
+		return i
+	}
+	return -1
 }
 
 // SetCategory 切换分类并重建视图。

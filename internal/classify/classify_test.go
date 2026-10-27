@@ -40,11 +40,34 @@ func TestCategory_ImageCacheBeatsJpgExtension(t *testing.T) {
 	}
 }
 
-func TestCategory_ThumbnailNotDocument(t *testing.T) {
-	// 缩略图是 .jpg，若不先判定会落进「其他」，必须归入视频。
+func TestCategory_ThumbnailIsVideoAtFileLevel(t *testing.T) {
+	// Category 是文件类型层面的判定：缩略图确实是视频的附属产物。
 	path := "/lib/msg/video/2024-09/abc_thumb.jpg"
 	if got := Category(path); got != model.CategoryVideo {
-		t.Fatalf("缩略图应归为视频，实际 %q", got)
+		t.Fatalf("缩略图在文件类型层面应归为视频，实际 %q", got)
+	}
+}
+
+func TestCategoryFor_ThumbnailGoesToOther(t *testing.T) {
+	// 界面展示层面：缩略图归「其他」，避免淹没真正的视频。
+	path := "/lib/msg/video/2024-09/abc_thumb.jpg"
+	if got := CategoryFor(path); got != model.CategoryOther {
+		t.Fatalf("缩略图应归入其他分类，实际 %q", got)
+	}
+}
+
+func TestCategoryFor_NonThumbnailUnchanged(t *testing.T) {
+	// 非缩略图的判定不受影响。
+	cases := map[string]model.Category{
+		"/lib/msg/video/2024-09/abc.mp4":      model.CategoryVideo,
+		"/lib/msg/file/2025-02/x.pdf":         model.CategoryDocument,
+		"/lib/msg/file/2025-08/x.zip":         model.CategoryArchive,
+		"/lib/msg/attach/a/2025-08/Img/x.dat": model.CategoryImageCache,
+	}
+	for path, want := range cases {
+		if got := CategoryFor(path); got != want {
+			t.Fatalf("CategoryFor(%q) = %q，期望 %q", path, got, want)
+		}
 	}
 }
 
@@ -62,8 +85,8 @@ func TestApply_FillsCategoryAndThumbnailFlag(t *testing.T) {
 	}
 	Apply(entries)
 
-	if entries[0].Category != model.CategoryVideo || !entries[0].IsThumbnail {
-		t.Fatalf("缩略图条目应为视频且 IsThumbnail=true，实际 %+v", entries[0])
+	if entries[0].Category != model.CategoryOther || !entries[0].IsThumbnail {
+		t.Fatalf("缩略图条目应归其他且 IsThumbnail=true，实际 %+v", entries[0])
 	}
 	if entries[1].Category != model.CategoryDocument || entries[1].IsThumbnail {
 		t.Fatalf("PDF 条目应为文档且非缩略图，实际 %+v", entries[1])

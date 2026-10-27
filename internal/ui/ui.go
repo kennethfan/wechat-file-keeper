@@ -6,10 +6,13 @@ package ui
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"path/filepath"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -20,6 +23,7 @@ import (
 	"github.com/kennethfan/wechat-file-keeper/internal/guard"
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
 	"github.com/kennethfan/wechat-file-keeper/internal/scan"
+	"github.com/kennethfan/wechat-file-keeper/internal/thumb"
 	"github.com/kennethfan/wechat-file-keeper/internal/trash"
 	"github.com/kennethfan/wechat-file-keeper/internal/view"
 )
@@ -48,8 +52,18 @@ type App struct {
 	categoryList *widget.List
 	categories   []model.Category
 
-	// 右侧条目表。
+	// 右侧条目表（分组列表）。
 	entryList *widget.List
+	// gridTable 是虚拟化的封面网格：只渲染可见格子。
+	gridTable *widget.Table
+	// gridCols 是网格列数，随窗口宽度调整。
+	gridCols int
+	// rightPane 在网格与列表之间切换。
+	rightPane *fyne.Container
+	// thumbs 是按需加载的封面缓存。
+	thumbs *thumb.Loader
+	// pending 记录正在解码的封面，避免同一张图重复排队。
+	pending map[string]struct{}
 
 	// 底部状态栏。
 	selectionLabel *widget.Label
@@ -132,7 +146,7 @@ func (a *App) build() {
 			return
 		}
 		a.state.SetCategory(a.categories[id])
-		a.entryList.Refresh()
+		a.rebuildRightPane()
 		a.updateFooter()
 	}
 
@@ -171,9 +185,13 @@ func (a *App) build() {
 	)
 
 	// 顶部：账号库下拉与刷新。
+	//
+	// Fyne 的中文语言包缺少 Select 的默认占位文案，会打出无害的
+	// Translation failure 警告。这里显式设一个占位文案绕开它。
 	a.librarySelect = widget.NewSelect(nil, func(choice string) {
 		a.onLibrarySelected(choice)
 	})
+	a.librarySelect.PlaceHolder = "选择账号库"
 	refreshBtn := widget.NewButton("重新扫描", func() {
 		a.refresh()
 	})
@@ -188,9 +206,45 @@ func (a *App) build() {
 		container.NewHBox(a.statusLabel, a.cleanButton),
 	)
 
+	// 右侧是堆叠容器：视频用封面网格，其余分类用分组列表。
+	a.gridTable = widget.NewTable(
+		func() (int, int) {
+			rows := len(a.state.Rows)
+			cols := a.gridCols
+			if cols < 1 {
+				cols = 1
+			}
+			// 行数按列数向上取整，最后一行不足时留空。
+			n := (rows + cols - 1) / cols
+			return n, cols
+		},
+		func() fyne.CanvasObject { return a.newThumbCell() },
+		func(id widget.TableCellID, obj fyne.CanvasObject) { a.updateThumbCell(id, obj) },
+	)
+	a.gridTable.CreateHeader = nil
+	// 点击格子即切换勾选。用 Table 自带的选中回调，而不是在格子里放按钮：
+	// 按钮的 Show/Hide 会触发容器重新布局，进而在渲染回调里引发重绘循环。
+	a.gridTable.OnSelected = func(id widget.TableCellID) {
+		row, ok := a.rowAtCell(id)
+		if !ok {
+			return
+		}
+		idx := a.state.IndexOf(row.Entry.Path)
+		if idx < 0 || idx >= len(a.state.Rows) {
+			return
+		}
+		a.state.Toggle(idx)
+		a.updateFooter()
+		// 只刷新被点的格子，避免整表重绘打乱滚动位置。
+		a.gridTable.RefreshItem(id)
+	}
+	a.updateGridCols()
+	a.rightPane = container.NewStack(a.entryList, a.gridTable)
+	a.gridTable.Hide()
+
 	split := container.NewHSplit(
 		container.NewBorder(widget.NewLabel("分类"), nil, nil, nil, a.categoryList),
-		a.entryList,
+		a.rightPane,
 	)
 	split.SetOffset(0.26)
 
@@ -203,6 +257,9 @@ func (a *App) build() {
 	footerBox := container.NewVBox(widget.NewSeparator(), footer)
 
 	a.window.SetContent(container.NewBorder(toolbar, footerBox, nil, nil, split))
+
+	// 初始为空视图，按当前分类（视频）选好右侧呈现方式。
+	a.rebuildRightPane()
 }
 
 // refresh 重新扫描并刷新界面。
@@ -234,7 +291,7 @@ func (a *App) refresh() {
 			a.statusLabel.SetText(fmt.Sprintf("扫描完成，%d 条，用时 %s",
 				len(res.Entries), res.Duration.Round(1e6)))
 			a.categoryList.Refresh()
-			a.entryList.Refresh()
+			a.rebuildRightPane()
 			a.updateFooter()
 		})
 	}()
@@ -406,7 +463,7 @@ func (a *App) displayRows() []displayItem {
 		for _, r := range g.Rows {
 			items = append(items, displayItem{
 				row:      r,
-				rowIndex: a.indexOfRow(r),
+				rowIndex: a.state.IndexOf(r.Entry.Path),
 			})
 		}
 	}
@@ -415,14 +472,10 @@ func (a *App) displayRows() []displayItem {
 
 // indexOfRow 在 state.Rows 中定位某条记录的下标。
 //
-// 用路径匹配而非指针比较：Row 是值类型，分组快照里的是副本。
+// 走 State 内部的索引表，O(1)。这是渲染热路径：每个可见格子都要查一次，
+// 线性扫描会让滚动退化成 O(n²)，几屏之后就卡死。
 func (a *App) indexOfRow(target view.Row) int {
-	for i, r := range a.state.Rows {
-		if r.Entry.Path == target.Entry.Path {
-			return i
-		}
-	}
-	return -1
+	return a.state.IndexOf(target.Entry.Path)
 }
 
 // renderGroupHeader 渲染组头：折叠按钮 + 三态勾选 + 月份与统计。
@@ -484,4 +537,207 @@ func (a *App) renderEntryRow(check *widget.Check, label *widget.Label, toggle *w
 		format.Bytes(row.Entry.Size),
 		filepath.Base(row.Entry.Path),
 		marker))
+}
+
+// useGrid 判断当前分类是否应该用封面网格呈现。
+//
+// useGrid 判断当前分类是否应该用封面网格呈现。
+//
+// 只有视频有封面；其余分类用网格只会浪费空间。
+func (a *App) useGrid() bool {
+	return a.state.Category == model.CategoryVideo
+}
+
+// rebuildRightPane 按当前分类切换网格与列表。
+func (a *App) rebuildRightPane() {
+	if !a.useGrid() {
+		a.gridTable.Hide()
+		a.entryList.Show()
+		a.entryList.Refresh()
+		return
+	}
+
+	a.entryList.Hide()
+	a.gridTable.Show()
+	// 切到网格时才重建表格，避免每次分类切换都触发全量重算。
+	a.gridTable.Refresh()
+}
+
+// updateGridCols 按右侧区域宽度计算网格列数。
+//
+// 格子固定 160px 宽，列数 = 可用宽度 / 160，至少 1 列。
+// 列数变化会让表格重建，所以只在真正变化时才更新。
+func (a *App) updateGridCols() {
+	if a.window == nil || a.window.Canvas() == nil {
+		if a.gridCols < 1 {
+			a.gridCols = 4
+		}
+		return
+	}
+	// 右侧区域约占窗口宽度的 74%（左侧分类树 26%）。
+	width := float32(a.window.Canvas().Size().Width) * 0.74
+	cols := int(width / 160)
+	if cols < 1 {
+		cols = 1
+	}
+	a.gridCols = cols
+
+	// 统一设置单元格尺寸，让表格知道如何布局。
+	for col := 0; col < cols; col++ {
+		a.gridTable.SetColumnWidth(col, 160)
+	}
+	a.gridTable.SetRowHeight(0, 190)
+}
+
+// newThumbCell 创建一个空的封面格子模板。
+//
+// widget.Table 会复用这些模板，只对可见格子调用 updateThumbCell，
+// 因此即使有上千条视频也只会实例化屏幕上那几十个格子。
+func (a *App) newThumbCell() fyne.CanvasObject {
+	img := canvas.NewImageFromResource(nil)
+	img.FillMode = canvas.ImageFillContain
+	img.SetMinSize(fyne.NewSize(150, 120))
+
+	caption := widget.NewLabel("")
+	caption.TextStyle = fyne.TextStyle{Italic: true}
+	caption.Truncation = fyne.TextTruncateEllipsis
+
+	return container.NewStack(
+		canvas.NewRectangle(color.NRGBA{R: 0, G: 0, B: 0, A: 0}),
+		container.NewBorder(nil, caption, nil, nil, img),
+	)
+}
+
+// updateThumbCell 填充第 id 个格子。
+//
+// 这里才真正去读封面文件：Table 只会为可见格子调用本方法，
+// 所以滚动到哪加载到哪，不会一次性解码全部封面。
+// 越界时返回 false——最后一行的格子数可能不足一整行。
+func (a *App) rowAtCell(id widget.TableCellID) (view.Row, bool) {
+	cols := a.gridCols
+	if cols < 1 {
+		cols = 1
+	}
+	index := id.Row*cols + id.Col
+	if index < 0 || index >= len(a.state.Rows) {
+		return view.Row{}, false
+	}
+	return a.state.Rows[index], true
+}
+func (a *App) updateThumbCell(id widget.TableCellID, obj fyne.CanvasObject) {
+	box := obj.(*fyne.Container)
+	bg := box.Objects[0].(*canvas.Rectangle)
+	inner := box.Objects[1].(*fyne.Container)
+	img := inner.Objects[0].(*canvas.Image)
+	caption := inner.Objects[1].(*widget.Label)
+
+	row, ok := a.rowAtCell(id)
+	if !ok {
+		// 末行不足时的空格子：清空内容。
+		if img.Image != nil {
+			img.Image = nil
+			img.Refresh()
+		}
+		if caption.Text != "" {
+			caption.SetText("")
+		}
+		if !isTransparent(bg.FillColor) {
+			bg.FillColor = color.NRGBA{A: 0}
+			bg.Refresh()
+		}
+		return
+	}
+
+	// 只在图片确实变化时赋值并 Refresh。
+	//
+	// 这一步是性能关键：Fyne 每次重绘都会调用本方法，若在这里无条件
+	// Refresh，就会触发「重绘 → Refresh → 重绘」的无限循环，CPU 打满。
+	want := a.requestThumb(id, row.Entry)
+	if img.Image != want {
+		img.Image = want
+		img.Refresh()
+	}
+
+	marker := ""
+	if row.Entry.IsOrphanThumbnail {
+		marker = " [孤儿]"
+	}
+	text := fmt.Sprintf("%s  %s%s",
+		format.Bytes(row.Entry.Size), row.Entry.Month, marker)
+	if caption.Text != text {
+		caption.SetText(text)
+	}
+
+	var fill color.Color = color.NRGBA{A: 0}
+	if row.Selected {
+		fill = color.NRGBA{R: 43, G: 196, B: 108, A: 60}
+	}
+	if !sameColor(bg.FillColor, fill) {
+		bg.FillColor = fill
+		bg.Refresh()
+	}
+
+}
+
+// isTransparent 判断颜色是否完全透明。
+func isTransparent(c color.Color) bool {
+	if c == nil {
+		return true
+	}
+	_, _, _, a := c.RGBA()
+	return a == 0
+}
+
+// sameColor 比较两个颜色是否等价。
+//
+// 统一按 RGBA() 的 16 位分量比较，避免 color.NRGBA 与 color.RGBA
+// 因具体类型不同而永远不相等，导致每帧都触发 Refresh。
+func sameColor(a, b color.Color) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ar, ag, ab, aa := a.RGBA()
+	br, bg, bb, ba := b.RGBA()
+	return ar == br && ag == bg && ab == bb && aa == ba
+}
+
+// requestThumb 异步请求一张封面。
+//
+// 解码单张约 2.3ms，滚动一屏几十张就是上百毫秒——同步做会让 UI 明显卡顿。
+// 这里先返回 nil 让格子显示占位色，解码完成后经 fyne.Do 回填并只刷新该格。
+//
+// pending 保证同一张图不会被重复排队：滚动来回时只会有一次解码在途。
+func (a *App) requestThumb(id widget.TableCellID, e model.Entry) image.Image {
+	if a.thumbs == nil {
+		a.thumbs = thumb.NewLoader()
+	}
+	if pic, ok := a.thumbs.Cached(e); ok {
+		return pic
+	}
+	if a.thumbs.Failed(e) {
+		return nil
+	}
+
+	key := e.Path
+	if a.pending == nil {
+		a.pending = make(map[string]struct{})
+	}
+	if _, inflight := a.pending[key]; inflight {
+		return nil
+	}
+	a.pending[key] = struct{}{}
+
+	go func() {
+		pic, ok := a.thumbs.Load(e)
+		fyne.Do(func() {
+			delete(a.pending, key)
+			if !ok {
+				return
+			}
+			_ = pic
+			// 只刷新这一格，避免整表重绘把用户滚动位置打乱。
+			a.gridTable.RefreshItem(id)
+		})
+	}()
+	return nil
 }
