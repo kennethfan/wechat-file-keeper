@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"os"
 	"path/filepath"
 
 	"fyne.io/fyne/v2"
@@ -15,6 +16,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/kennethfan/wechat-file-keeper/internal/account"
@@ -22,6 +24,7 @@ import (
 	"github.com/kennethfan/wechat-file-keeper/internal/format"
 	"github.com/kennethfan/wechat-file-keeper/internal/guard"
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
+	"github.com/kennethfan/wechat-file-keeper/internal/preview"
 	"github.com/kennethfan/wechat-file-keeper/internal/scan"
 	"github.com/kennethfan/wechat-file-keeper/internal/thumb"
 	"github.com/kennethfan/wechat-file-keeper/internal/trash"
@@ -64,6 +67,17 @@ type App struct {
 	lastSortDescending bool
 	// syncingMode 标记正在同步切换控件，防止 OnChanged 回调递归。
 	syncingMode bool
+
+	// 预览面板控件。
+	previewTitle    *widget.Label
+	previewMeta     *widget.Label
+	previewImage    *canvas.Image
+	previewIcon     *canvas.Image
+	previewIconName *widget.Label
+	previewHint     *widget.Label
+	previewScroll   *container.Scroll
+	// previewEntry 是当前正在预览的条目，用于丢弃过期结果。
+	previewEntry model.Entry
 	// gridTable 是虚拟化的封面网格：只渲染可见格子。
 	gridTable *widget.Table
 	// gridCols 是网格列数，随窗口宽度调整。
@@ -245,6 +259,8 @@ func (a *App) build() {
 		}
 		a.state.Toggle(idx)
 		a.updateFooter()
+		// 点格子的同时更新预览面板。
+		a.showPreview(a.state.Rows[idx].Entry)
 		// 只刷新被点的格子，避免整表重绘打乱滚动位置。
 		a.gridTable.RefreshItem(id)
 	}
@@ -290,11 +306,15 @@ func (a *App) build() {
 	a.rightPane = container.NewStack(a.entryList, a.detailTable, a.gridTable)
 	a.gridTable.Hide()
 
+	// 三段布局：左侧分类树 | 中间条目 | 右侧预览面板。
+	midSplit := container.NewHSplit(a.rightPane, a.buildPreviewPanel())
+	midSplit.SetOffset(0.68)
+
 	split := container.NewHSplit(
 		container.NewBorder(widget.NewLabel("分类"), nil, nil, nil, a.categoryList),
-		a.rightPane,
+		midSplit,
 	)
-	split.SetOffset(0.26)
+	split.SetOffset(0.20)
 
 	// 顶部工具条放账号库下拉与刷新按钮，底部放状态栏。
 	a.modeSelect = widget.NewSelect(modeLabels(), func(choice string) {
@@ -591,6 +611,10 @@ func (a *App) renderEntryRow(check *widget.Check, label *widget.Label, toggle *w
 			a.state.Toggle(idx)
 			a.updateFooter()
 		}
+		// 勾选时也更新预览，让用户确认勾的是哪个文件。
+		if idx >= 0 && idx < len(a.state.Rows) {
+			a.showPreview(a.state.Rows[idx].Entry)
+		}
 	}
 
 	marker := ""
@@ -882,6 +906,7 @@ func (a *App) onTableSelected(id widget.TableCellID) {
 	}
 	a.state.Toggle(dataRow)
 	a.updateFooter()
+	a.showPreview(a.state.Rows[dataRow].Entry)
 	a.detailTable.RefreshItem(id)
 }
 
@@ -908,4 +933,150 @@ func (a *App) toggleSortByColumn(col int) {
 
 	a.state.SetSort(field, descending)
 	a.detailTable.Refresh()
+}
+
+// buildPreviewPanel 构建右侧预览面板。
+//
+// 面板由三部分组成：顶部的文件信息、中间的预览内容、底部的操作按钮。
+// 预览内容在选中条目时按需生成，不预先批量处理。
+func (a *App) buildPreviewPanel() fyne.CanvasObject {
+	a.previewTitle = widget.NewLabel("未选中条目")
+	a.previewTitle.TextStyle = fyne.TextStyle{Bold: true}
+	a.previewTitle.Wrapping = fyne.TextWrapWord
+
+	a.previewMeta = widget.NewLabel("")
+	a.previewMeta.Wrapping = fyne.TextWrapWord
+
+	a.previewImage = canvas.NewImageFromResource(nil)
+	a.previewImage.FillMode = canvas.ImageFillContain
+	a.previewImage.SetMinSize(fyne.NewSize(240, 200))
+
+	// 非图片类型显示的占位图标：一个浅色方块，配上文件名。
+	// 不追求真实文件类型图标，够表达「这里有个文件」即可。
+	a.previewIcon = canvas.NewImageFromResource(theme.FileIcon())
+	a.previewIcon.FillMode = canvas.ImageFillContain
+	a.previewIcon.SetMinSize(fyne.NewSize(96, 96))
+	a.previewIcon.Hide()
+
+	a.previewIconName = widget.NewLabel("")
+	a.previewIconName.Wrapping = fyne.TextWrapWord
+	a.previewIconName.Alignment = fyne.TextAlignCenter
+	a.previewIconName.Hide()
+
+	a.previewHint = widget.NewLabel("在左侧选中一个条目即可预览")
+	a.previewHint.Wrapping = fyne.TextWrapWord
+
+	a.previewScroll = container.NewVScroll(container.NewVBox(
+		container.NewCenter(a.previewIcon),
+		container.NewCenter(a.previewIconName),
+		a.previewImage,
+		a.previewHint,
+	))
+
+	return container.NewBorder(
+		container.NewVBox(a.previewTitle, a.previewMeta, widget.NewSeparator()),
+		nil, nil, nil,
+		a.previewScroll,
+	)
+}
+
+// showPreview 为指定条目更新预览面板。
+// showPreview 为指定条目更新预览面板。
+//
+// 只做两类真实预览：图片直接显示、视频显示封面。
+// 其余类型显示文件类型图标与文件名——不做内容级预览，
+// 避免调外部工具带来的超时与权限问题。
+func (a *App) showPreview(e model.Entry) {
+	a.previewEntry = e
+
+	a.previewTitle.SetText(filepath.Base(e.Path))
+	a.previewMeta.SetText(fmt.Sprintf("%s · %s · %s",
+		format.Bytes(e.Size), monthOrDash(e.Month), e.Category))
+
+	result := preview.Detect(e)
+
+	// 先清空旧内容，避免残留上一个条目的图。
+	a.previewImage.Image = nil
+	a.previewImage.Refresh()
+	a.previewImage.Hide()
+	a.previewIcon.Hide()
+	a.previewIconName.Hide()
+	a.previewHint.Hide()
+
+	switch result.Kind {
+	case preview.KindIcon:
+		// 图标 + 文件名：让用户知道这是什么类型的文件。
+		a.previewIconName.SetText(filepath.Base(e.Path))
+		a.previewIconName.Show()
+		a.previewIcon.Show()
+		if result.Reason != "" {
+			a.previewHint.SetText(result.Reason)
+			a.previewHint.Show()
+		}
+		return
+	}
+
+	// 图片与视频封面都走后台解码，避免阻塞界面。
+	a.previewHint.SetText("正在加载预览…")
+	a.previewHint.Show()
+
+	go func() {
+		img, err := a.loadPreviewImage(e, result.Kind)
+		fyne.Do(func() {
+			// 用户可能已点了别的条目，过期结果直接丢弃。
+			if a.previewEntry.Path != e.Path {
+				return
+			}
+			a.previewHint.Hide()
+			if err != nil {
+				a.previewIconName.SetText(filepath.Base(e.Path))
+				a.previewIconName.Show()
+				a.previewIcon.Show()
+				a.previewHint.SetText(fmt.Sprintf("无法显示预览：%v", err))
+				a.previewHint.Show()
+				return
+			}
+			a.previewImage.Image = img
+			a.previewImage.Show()
+			a.previewImage.Refresh()
+		})
+	}()
+}
+
+// loadPreviewImage 按预览类型取得图片。
+func (a *App) loadPreviewImage(e model.Entry, kind preview.Kind) (image.Image, error) {
+	if kind == preview.KindVideoThumb {
+		if a.thumbs == nil {
+			a.thumbs = thumb.NewLoader()
+		}
+		img, ok := a.thumbs.Load(e)
+		if !ok {
+			return nil, fmt.Errorf("该视频没有封面图")
+		}
+		return img, nil
+	}
+	return decodeImage(e.Path)
+}
+
+// monthOrDash 返回月份，空值时显示破折号。
+func monthOrDash(month string) string {
+	if month == "" {
+		return "—"
+	}
+	return month
+}
+
+// decodeImage 读取并解码图片文件。
+func decodeImage(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return nil, fmt.Errorf("无法解码图片: %w", err)
+	}
+	return img, nil
 }
