@@ -136,3 +136,24 @@ func isImageExt(ext string) bool {
 	}
 	return false
 }
+
+// ImageExt 按文件头推断 .dat 对应的真实扩展名。
+//
+// 打开图片缓存时需要把它复制成带正确扩展名的文件，系统才认得。
+// 无法识别（含微信私有编码）时返回空串。
+func ImageExt(path string) string {
+	header, err := readHeader(path, 4)
+	if err != nil {
+		return ""
+	}
+	switch {
+	case hasPrefix(header, jpegMagic):
+		return ".jpg"
+	case hasPrefix(header, pngMagic):
+		return ".png"
+	case hasPrefix(header, gifMagic):
+		return ".gif"
+	default:
+		return ""
+	}
+}

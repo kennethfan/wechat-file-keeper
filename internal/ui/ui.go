@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -24,6 +25,7 @@ import (
 	"github.com/kennethfan/wechat-file-keeper/internal/format"
 	"github.com/kennethfan/wechat-file-keeper/internal/guard"
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
+	"github.com/kennethfan/wechat-file-keeper/internal/opener"
 	"github.com/kennethfan/wechat-file-keeper/internal/preview"
 	"github.com/kennethfan/wechat-file-keeper/internal/scan"
 	"github.com/kennethfan/wechat-file-keeper/internal/thumb"
@@ -75,9 +77,14 @@ type App struct {
 	previewIcon     *canvas.Image
 	previewIconName *widget.Label
 	previewHint     *widget.Label
+	previewOpen     *widget.Button
+	previewReveal   *widget.Button
 	previewScroll   *container.Scroll
 	// previewEntry 是当前正在预览的条目，用于丢弃过期结果。
 	previewEntry model.Entry
+	// lastTapID 与 lastTapAt 用于判定双击。
+	lastTapID widget.TableCellID
+	lastTapAt time.Time
 	// gridTable 是虚拟化的封面网格：只渲染可见格子。
 	gridTable *widget.Table
 	// gridCols 是网格列数，随窗口宽度调整。
@@ -134,6 +141,9 @@ func Run(root, libPath string) error {
 	}
 
 	w.ShowAndRun()
+
+	// 退出时清理打开图片缓存产生的临时文件，避免长期占用磁盘。
+	_ = opener.CleanTemp()
 	return nil
 }
 
@@ -257,6 +267,11 @@ func (a *App) build() {
 		if idx < 0 || idx >= len(a.state.Rows) {
 			return
 		}
+		if a.isDoubleTap(id) {
+			a.openEntry(a.state.Rows[idx].Entry)
+			return
+		}
+
 		a.state.Toggle(idx)
 		a.updateFooter()
 		// 点格子的同时更新预览面板。
@@ -904,6 +919,11 @@ func (a *App) onTableSelected(id widget.TableCellID) {
 	if dataRow < 0 || dataRow >= len(a.state.Rows) {
 		return
 	}
+	if a.isDoubleTap(id) {
+		a.openEntry(a.state.Rows[dataRow].Entry)
+		return
+	}
+
 	a.state.Toggle(dataRow)
 	a.updateFooter()
 	a.showPreview(a.state.Rows[dataRow].Entry)
@@ -973,9 +993,23 @@ func (a *App) buildPreviewPanel() fyne.CanvasObject {
 		a.previewHint,
 	))
 
+	a.previewOpen = widget.NewButton("打开", func() {
+		if a.previewEntry.Path != "" {
+			a.openEntry(a.previewEntry)
+		}
+	})
+	a.previewReveal = widget.NewButton("在 Finder 中显示", func() {
+		if a.previewEntry.Path != "" {
+			a.revealEntry(a.previewEntry)
+		}
+	})
+
+	actions := container.NewHBox(a.previewOpen, a.previewReveal)
+
 	return container.NewBorder(
 		container.NewVBox(a.previewTitle, a.previewMeta, widget.NewSeparator()),
-		nil, nil, nil,
+		container.NewVBox(widget.NewSeparator(), actions),
+		nil, nil,
 		a.previewScroll,
 	)
 }
@@ -1079,4 +1113,41 @@ func decodeImage(path string) (image.Image, error) {
 		return nil, fmt.Errorf("无法解码图片: %w", err)
 	}
 	return img, nil
+}
+
+// openEntry 用系统默认程序打开条目。
+func (a *App) openEntry(e model.Entry) {
+	if err := opener.Open(e); err != nil {
+		dialog.ShowError(fmt.Errorf("无法打开 %s\n\n%v", filepath.Base(e.Path), err), a.window)
+	}
+}
+
+// revealEntry 在 Finder 中定位条目。
+func (a *App) revealEntry(e model.Entry) {
+	if err := opener.Reveal(e); err != nil {
+		dialog.ShowError(fmt.Errorf("无法定位 %s\n\n%v", filepath.Base(e.Path), err), a.window)
+	}
+}
+
+// buildEntryMenu 构建条目右键菜单。
+func (a *App) buildEntryMenu(e model.Entry) *fyne.Menu {
+	return fyne.NewMenu("",
+		fyne.NewMenuItem("打开", func() { a.openEntry(e) }),
+		fyne.NewMenuItem("在 Finder 中显示", func() { a.revealEntry(e) }),
+	)
+}
+
+// isDoubleTap 判断两次点击是否构成双击。
+//
+// Fyne 的 Table 没有双击事件，这里用时间间隔判定：同一格子在
+// 400ms 内被点两次即视为双击。记录的是上一次点击的格子和时间。
+func (a *App) isDoubleTap(id widget.TableCellID) bool {
+	now := time.Now()
+	prev := a.lastTapID
+	sameCell := prev.Row == id.Row && prev.Col == id.Col
+	recent := now.Sub(a.lastTapAt) < 400*time.Millisecond
+
+	a.lastTapID = id
+	a.lastTapAt = now
+	return sameCell && recent
 }
