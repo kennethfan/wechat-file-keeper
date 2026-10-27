@@ -19,6 +19,7 @@ import (
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
 	"github.com/kennethfan/wechat-file-keeper/internal/scan"
 	"github.com/kennethfan/wechat-file-keeper/internal/trash"
+	"github.com/kennethfan/wechat-file-keeper/internal/ui"
 	"github.com/kennethfan/wechat-file-keeper/internal/undo"
 )
 
@@ -33,6 +34,7 @@ func usage() {
   wechat-file-keeper cache                         显示图片缓存年份分布
   wechat-file-keeper clean [选项]                   把选中项移入废纸篓（默认仅预览）
   wechat-file-keeper undo [--manifest <文件>]       按清单把文件搬回原位
+  wechat-file-keeper gui                            打开图形界面
 
 选项:
   --root <路径>        指定微信数据根目录（默认为本机标准位置）
@@ -89,6 +91,8 @@ func run(args []string) error {
 		return runClean(*root, *libPath, *category, *minSize, *limit, *orphansOnly, *includeCache, *yes)
 	case "undo":
 		return runUndo(*manifestPath)
+	case "gui":
+		return ui.Run(*root, *libPath)
 	case "-h", "--help", "help":
 		usage()
 		return nil
