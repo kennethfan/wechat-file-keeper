@@ -49,6 +49,46 @@ wechat-file-keeper scan --root <路径>    # 指定微信数据根目录
 硬链接虚增 331.4 MB  （同一 inode 挂了多个名字，删除不释放空间）
 ```
 
+### 子命令一览
+
+```bash
+wechat-file-keeper scan                   # 空间统计
+wechat-file-keeper list --category 视频 --min-size 100MB   # 按分类与大小筛选
+wechat-file-keeper dup                    # 真重复分组（只读，不提供删除）
+wechat-file-keeper cache                  # 图片缓存年份分布
+wechat-file-keeper clean --orphans        # 预览清理孤儿缩略图
+wechat-file-keeper clean --orphans --yes  # 确认执行
+wechat-file-keeper undo                   # 回滚最近一次清理
+wechat-file-keeper gui                    # 图形界面
+```
+
+`clean` 默认只打印计划，必须加 `--yes` 才动文件。图片缓存需额外加
+`--include-cache`：它是本地唯一副本，微信服务器有过期策略，老缓存删了
+可能再也下载不回来。
+
+### 图形界面
+
+`wechat-file-keeper gui`，或打包后双击 `.app`。左侧是分类树（带实占大小），
+右侧是可多选的条目表，底部显示「已选 N 项，合计 X MB」。微信运行时清理
+按钮会置灰并说明原因。
+
+## 打包成 .app
+
+```bash
+make app      # 产出 dist/微信文件管家.app，ad-hoc 签名
+make icon     # 仅重新生成图标（需 Pillow）
+```
+
+默认走 ad-hoc 签名，只够本机运行。要让别人双击打开需要 Apple 开发者证书：
+
+```bash
+make app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+```
+
+图标按 Apple HIG 绘制：1024 画布上圆角方块主体 824×824 居中，四边各留
+100px 透明边距。源图由 `packaging/make_icon_source.py` 生成，再经
+`packaging/make_icon.py` 打包成 `.icns`。
+
 ## 开发文档
 
 - [CONTEXT.md](CONTEXT.md) — 领域词汇表
