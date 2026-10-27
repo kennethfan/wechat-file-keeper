@@ -1,0 +1,12 @@
+# 构建产物
+bin/
+dist/
+*.app
+*.out
+coverage.html
+
+# macOS
+.DS_Store
+
+# 本地临时草稿
+.scratch/
