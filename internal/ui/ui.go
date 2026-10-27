@@ -54,6 +54,16 @@ type App struct {
 
 	// 右侧条目表（分组列表）。
 	entryList *widget.List
+	// detailTable 是多列表格视图。
+	detailTable *widget.Table
+	// modeSelect 是视图模式切换控件。
+	modeSelect *widget.Select
+	// lastSortField 记录上次排序字段，用于判断是否反转方向。
+	lastSortField view.SortField
+	// lastSortDescending 记录上次排序方向。
+	lastSortDescending bool
+	// syncingMode 标记正在同步切换控件，防止 OnChanged 回调递归。
+	syncingMode bool
 	// gridTable 是虚拟化的封面网格：只渲染可见格子。
 	gridTable *widget.Table
 	// gridCols 是网格列数，随窗口宽度调整。
@@ -239,7 +249,45 @@ func (a *App) build() {
 		a.gridTable.RefreshItem(id)
 	}
 	a.updateGridCols()
-	a.rightPane = container.NewStack(a.entryList, a.gridTable)
+	// 表格视图：大小、月份、类型、文件名四列。
+	a.detailTable = widget.NewTable(
+		// 第 0 行是表头，数据从第 1 行开始。
+		func() (int, int) { return len(a.state.Rows) + 1, len(tableHeaders) },
+		func() fyne.CanvasObject {
+			label := widget.NewLabel("")
+			label.Truncation = fyne.TextTruncateEllipsis
+			return label
+		},
+		func(id widget.TableCellID, obj fyne.CanvasObject) {
+			label := obj.(*widget.Label)
+			if id.Row == 0 {
+				// 表头行：加粗显示列名。
+				if id.Col >= 0 && id.Col < len(tableHeaders) {
+					label.SetText(tableHeaders[id.Col])
+					label.TextStyle = fyne.TextStyle{Bold: true}
+				}
+				return
+			}
+			label.TextStyle = fyne.TextStyle{}
+			dataRow := id.Row - 1
+			if dataRow < 0 || dataRow >= len(a.state.Rows) {
+				label.SetText("")
+				return
+			}
+			label.SetText(a.tableCellText(dataRow, id.Col))
+		},
+	)
+	for i, w := range tableColWidths {
+		a.detailTable.SetColumnWidth(i, w)
+	}
+	a.detailTable.SetRowHeight(0, 30)
+	// 点击列头排序：大小与月份两列可排，其余列保持原顺序。
+	a.detailTable.OnSelected = func(id widget.TableCellID) {
+		a.onTableSelected(id)
+	}
+	a.detailTable.Hide()
+
+	a.rightPane = container.NewStack(a.entryList, a.detailTable, a.gridTable)
 	a.gridTable.Hide()
 
 	split := container.NewHSplit(
@@ -249,9 +297,25 @@ func (a *App) build() {
 	split.SetOffset(0.26)
 
 	// 顶部工具条放账号库下拉与刷新按钮，底部放状态栏。
+	a.modeSelect = widget.NewSelect(modeLabels(), func(choice string) {
+		// 同步控件状态时触发的回调直接忽略，否则会无限递归。
+		if a.syncingMode {
+			return
+		}
+		if !view.IsValidMode(choice) {
+			return
+		}
+		a.state.SetCurrentMode(view.ViewMode(choice))
+		a.rebuildRightPane()
+	})
+	a.modeSelect.PlaceHolder = "视图"
+	a.modeSelect.SetSelected(string(a.state.CurrentMode()))
+
 	toolbar := container.NewHBox(
 		widget.NewLabel("账号库"),
 		a.librarySelect,
+		widget.NewLabel("视图"),
+		a.modeSelect,
 		refreshBtn,
 	)
 	footerBox := container.NewVBox(widget.NewSeparator(), footer)
@@ -541,26 +605,42 @@ func (a *App) renderEntryRow(check *widget.Check, label *widget.Label, toggle *w
 
 // useGrid 判断当前分类是否应该用封面网格呈现。
 //
-// useGrid 判断当前分类是否应该用封面网格呈现。
+// useGrid 判断当前是否应该用封面网格呈现。
 //
-// 只有视频有封面；其余分类用网格只会浪费空间。
+// 由用户选择的视图模式决定，不再按分类硬编码：图片缓存也有缩略图，
+// 文档有时也想看封面。
 func (a *App) useGrid() bool {
-	return a.state.Category == model.CategoryVideo
+	return a.state.CurrentMode() == view.ModeGrid
 }
 
 // rebuildRightPane 按当前分类切换网格与列表。
 func (a *App) rebuildRightPane() {
-	if !a.useGrid() {
-		a.gridTable.Hide()
-		a.entryList.Show()
-		a.entryList.Refresh()
-		return
+	mode := a.state.CurrentMode()
+	if a.modeSelect != nil && !a.syncingMode {
+		// 同步切换控件，避免用户切分类后按钮状态与实际视图不一致。
+		// 置标志防止 SetSelected 触发 OnChanged 再次调用本函数，形成递归。
+		a.syncingMode = true
+		a.modeSelect.SetSelected(string(mode))
+		a.syncingMode = false
 	}
 
-	a.entryList.Hide()
-	a.gridTable.Show()
-	// 切到网格时才重建表格，避免每次分类切换都触发全量重算。
-	a.gridTable.Refresh()
+	switch mode {
+	case view.ModeGrid:
+		a.entryList.Hide()
+		a.detailTable.Hide()
+		a.gridTable.Show()
+		a.gridTable.Refresh()
+	case view.ModeTable:
+		a.gridTable.Hide()
+		a.entryList.Hide()
+		a.detailTable.Show()
+		a.detailTable.Refresh()
+	default:
+		a.gridTable.Hide()
+		a.detailTable.Hide()
+		a.entryList.Show()
+		a.entryList.Refresh()
+	}
 }
 
 // updateGridCols 按右侧区域宽度计算网格列数。
@@ -740,4 +820,92 @@ func (a *App) requestThumb(id widget.TableCellID, e model.Entry) image.Image {
 		})
 	}()
 	return nil
+}
+
+// tableHeaders 是表格视图的列标题。
+var tableHeaders = []string{"大小", "月份", "类型", "文件名"}
+
+// tableColWidths 是表格视图各列宽度，与 tableHeaders 一一对应。
+var tableColWidths = []float32{90, 80, 70, 420}
+
+// modeLabels 返回视图切换控件的选项文本。
+func modeLabels() []string {
+	out := make([]string, len(view.AllModes))
+	for i, m := range view.AllModes {
+		out[i] = string(m)
+	}
+	return out
+}
+
+// tableCellText 返回表格中某格应显示的文字。
+func (a *App) tableCellText(row, col int) string {
+	if row < 0 || row >= len(a.state.Rows) {
+		return ""
+	}
+	e := a.state.Rows[row].Entry
+	switch col {
+	case 0:
+		return format.Bytes(e.Size)
+	case 1:
+		if e.Month == "" {
+			return "—"
+		}
+		return e.Month
+	case 2:
+		return string(e.Category)
+	case 3:
+		name := filepath.Base(e.Path)
+		if e.IsOrphanThumbnail {
+			name += " [孤儿]"
+		}
+		return name
+	default:
+		return ""
+	}
+}
+
+// onTableSelected 处理表格点击：勾选条目，点列头则切换排序。
+func (a *App) onTableSelected(id widget.TableCellID) {
+	// Fyne 的 Table 没有独立列头，这里用第 0 行之外的第一行当作「表头行」，
+	// 通过点击列号 0/1 的顶行触发排序。
+	if id.Row == 0 {
+		// 表头行：点大小或月份列切换排序。
+		if id.Col <= 1 {
+			a.toggleSortByColumn(id.Col)
+		}
+		return
+	}
+
+	dataRow := id.Row - 1
+	if dataRow < 0 || dataRow >= len(a.state.Rows) {
+		return
+	}
+	a.state.Toggle(dataRow)
+	a.updateFooter()
+	a.detailTable.RefreshItem(id)
+}
+
+// toggleSortByColumn 按列切换排序。
+//
+// 列 0 是大小，列 1 是月份；再次点击同一列时反转方向。
+func (a *App) toggleSortByColumn(col int) {
+	var field view.SortField
+	switch col {
+	case 0:
+		field = view.SortBySize
+	case 1:
+		field = view.SortByMonth
+	default:
+		return
+	}
+
+	descending := true
+	if a.lastSortField == field {
+		descending = !a.lastSortDescending
+	}
+	a.lastSortField = field
+	a.lastSortDescending = descending
+
+	a.state.SetSort(field, descending)
+	a.detailTable.Refresh()
 }

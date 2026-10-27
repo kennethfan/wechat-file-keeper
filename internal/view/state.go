@@ -43,6 +43,9 @@ type State struct {
 	// rowIndex 把条目路径映射到 Rows 下标，避免每次查下标都线性扫描。
 	// 界面上每个可见格子都要查一次，线性扫描会退化成 O(n²)。
 	rowIndex map[string]int
+
+	// modes 记录用户为各分类显式选择的视图模式。
+	modes map[model.Category]ViewMode
 }
 
 // NewState 由扫描结果构建初始状态。
@@ -181,4 +184,50 @@ func MatchName(e model.Entry, keyword string) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(e.Path), strings.ToLower(keyword))
+}
+
+// SortField 是表格视图的排序字段。
+type SortField int
+
+const (
+	// SortBySize 按字节数排序。
+	SortBySize SortField = iota
+	// SortByMonth 按月份排序。
+	SortByMonth
+	// SortByName 按文件名排序。
+	SortByName
+)
+
+// SetSort 按指定字段重排当前视图。
+//
+// 切换同一字段时反转方向，这与常见表格的行为一致。
+func (s *State) SetSort(field SortField, descending bool) {
+	less := func(i, j int) bool {
+		switch field {
+		case SortByMonth:
+			return s.Rows[i].Entry.Month < s.Rows[j].Entry.Month
+		case SortByName:
+			return s.Rows[i].Entry.Path < s.Rows[j].Entry.Path
+		default:
+			return s.Rows[i].Entry.Size < s.Rows[j].Entry.Size
+		}
+	}
+
+	// 用稳定排序，保证同值时顺序可预期。
+	sort.SliceStable(s.Rows, func(i, j int) bool {
+		if descending {
+			return less(j, i)
+		}
+		return less(i, j)
+	})
+	// 行顺序变了，索引表必须重建，否则 IndexOf 会指向错误行。
+	s.reindex()
+}
+
+// reindex 重建路径到行下标的映射。
+func (s *State) reindex() {
+	s.rowIndex = make(map[string]int, len(s.Rows))
+	for i, r := range s.Rows {
+		s.rowIndex[r.Entry.Path] = i
+	}
 }
