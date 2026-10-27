@@ -19,6 +19,7 @@ import (
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
 	"github.com/kennethfan/wechat-file-keeper/internal/scan"
 	"github.com/kennethfan/wechat-file-keeper/internal/trash"
+	"github.com/kennethfan/wechat-file-keeper/internal/undo"
 )
 
 // usage 打印命令帮助。
@@ -31,6 +32,7 @@ func usage() {
   wechat-file-keeper dup                           列出真重复分组
   wechat-file-keeper cache                         显示图片缓存年份分布
   wechat-file-keeper clean [选项]                   把选中项移入废纸篓（默认仅预览）
+  wechat-file-keeper undo [--manifest <文件>]       按清单把文件搬回原位
 
 选项:
   --root <路径>        指定微信数据根目录（默认为本机标准位置）
@@ -69,6 +71,7 @@ func run(args []string) error {
 	orphansOnly := fs.Bool("orphans", false, "只清理孤儿缩略图")
 	includeCache := fs.Bool("include-cache", false, "允许清理图片缓存")
 	yes := fs.Bool("yes", false, "确认执行")
+	manifestPath := fs.String("manifest", "", "指定要回滚的清单文件")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -84,6 +87,8 @@ func run(args []string) error {
 		return runCache(*root, *libPath)
 	case "clean":
 		return runClean(*root, *libPath, *category, *minSize, *limit, *orphansOnly, *includeCache, *yes)
+	case "undo":
+		return runUndo(*manifestPath)
 	case "-h", "--help", "help":
 		usage()
 		return nil
@@ -461,4 +466,47 @@ func manifestDir() string {
 		return ".wechat-file-keeper"
 	}
 	return filepath.Join(home, "Library", "Application Support", "wechat-file-keeper", "manifests")
+}
+
+// runUndo 按清单把文件从废纸篓搬回原位。
+//
+// 默认回滚最近一次清理；也可用 --manifest 指定某份清单。
+func runUndo(manifestPath string) error {
+	dir := manifestDir()
+	target := manifestPath
+	if target == "" {
+		latest, err := trash.Latest(dir)
+		if err != nil {
+			return fmt.Errorf("%w\n提示：清单目录为 %s", err, dir)
+		}
+		target = latest
+	}
+
+	m, err := trash.Load(target)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("清单 %s\n", filepath.Base(target))
+	fmt.Printf("创建于 %s，共 %s 条记录\n\n",
+		m.CreatedAt, format.Count(len(m.Records)))
+
+	res, err := undo.Apply(m)
+	if err != nil {
+		return err
+	}
+
+	for _, s := range res.Skipped {
+		fmt.Printf("  跳过 %s：%s\n", shortName(s.Record.OriginalPath), s.Reason)
+	}
+	if len(res.Skipped) > 0 {
+		fmt.Println()
+	}
+
+	fmt.Printf("已恢复 %s 项，合计 %s\n",
+		format.Count(len(res.Restored)), format.Bytes(res.RestoredBytes))
+	if len(res.Skipped) > 0 {
+		fmt.Printf("未恢复 %s 项\n", format.Count(len(res.Skipped)))
+	}
+	return nil
 }
