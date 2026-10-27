@@ -5,6 +5,11 @@ dist/
 *.out
 coverage.html
 
+# 受限环境下的 Go 缓存
+.gopath/
+.gomodcache/
+.gocache/
+
 # macOS
 .DS_Store
 
