@@ -43,27 +43,28 @@ func TestCheckEntry_AllowsOrphanThumbnailWhileRunning(t *testing.T) {
 	}
 }
 
-func TestCheckEntry_RejectsImageCacheWhileRunning(t *testing.T) {
+func TestCheckEntry_AllowsImageCacheWhileRunning(t *testing.T) {
+	// 微信运行不再拦截，风险由界面二次确认呈现。
 	c := Checker{MsgRoot: testRoot, WeChatRunning: true}
 	e := model.Entry{
 		Path:     filepath.Join(testRoot, "attach/a/2025-08/Img/x.dat"),
 		Category: model.CategoryImageCache,
 	}
 
-	if err := c.CheckEntry(e); !errors.Is(err, ErrWeChatRunning) {
-		t.Fatalf("图片缓存应要求退出微信，实际: %v", err)
+	if err := c.CheckEntry(e); err != nil {
+		t.Fatalf("图片缓存应可清理（需二次确认），实际: %v", err)
 	}
 }
 
-func TestCheckEntry_RejectsChatFileWhileRunning(t *testing.T) {
+func TestCheckEntry_AllowsChatFileWhileRunning(t *testing.T) {
 	c := Checker{MsgRoot: testRoot, WeChatRunning: true}
 	e := model.Entry{
 		Path:     filepath.Join(testRoot, "file/2025-02/x.pdf"),
 		Category: model.CategoryDocument,
 	}
 
-	if err := c.CheckEntry(e); !errors.Is(err, ErrWeChatRunning) {
-		t.Fatalf("聊天文件应要求退出微信，实际: %v", err)
+	if err := c.CheckEntry(e); err != nil {
+		t.Fatalf("聊天文件应可清理（需二次确认），实际: %v", err)
 	}
 }
 

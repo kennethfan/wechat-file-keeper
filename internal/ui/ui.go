@@ -422,13 +422,24 @@ func (a *App) onClean() {
 	message := fmt.Sprintf("将 %d 项（%s）移入废纸篓？\n\n可在命令行用 undo 恢复。",
 		count, format.Bytes(bytes))
 
-	// 图片缓存是本地唯一副本，需要额外警告。
+	// 微信运行时按类别给出具体风险，让用户知情后自行决定。
+	// 不阻止操作——废纸篓 + undo 本身就是安全网。
+	if warning := a.state.RunningWarning(); warning != "" {
+		message += "\n\n" + warning
+	}
+
+	// 图片缓存是本地唯一副本，额外提醒服务器可能已过期。
 	if a.state.Category == model.CategoryImageCache {
-		message += "\n\n注意：图片缓存是本地唯一副本，微信服务器有过期策略，" +
+		message += "\n注意：图片缓存是本地唯一副本，微信服务器有过期策略，" +
 			"较早的缓存删除后可能无法重新下载。"
 	}
 
-	dialog.ShowConfirm("确认清理", message, func(confirmed bool) {
+	title := "确认清理"
+	if a.state.NeedsConfirmWhileRunning() {
+		title = "确认清理（微信正在运行）"
+	}
+
+	dialog.ShowConfirm(title, message, func(confirmed bool) {
 		if !confirmed {
 			return
 		}

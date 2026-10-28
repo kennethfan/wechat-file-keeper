@@ -84,16 +84,20 @@ func TestBuild_IncludesCacheWhenAuthorized(t *testing.T) {
 	}
 }
 
-func TestApply_RefusesWhenWeChatRunning(t *testing.T) {
+func TestApply_ProceedsWhenWeChatRunning(t *testing.T) {
+	// 微信运行不再阻止清理：确认环节在界面层，执行层照常工作。
 	e := newEnv(t)
 	entry := e.file(t, "video/2024-09/a.mp4", "bytes", model.CategoryVideo)
 
-	_, err := Apply(Plan{Selected: []model.Entry{entry}}, e.msgRoot, true, e.cleaner)
-	if !errors.Is(err, guard.ErrWeChatRunning) {
-		t.Fatalf("微信运行时应拒绝，实际: %v", err)
+	m, err := Apply(Plan{Selected: []model.Entry{entry}}, e.msgRoot, true, e.cleaner)
+	if err != nil {
+		t.Fatalf("微信运行时也应能清理，实际: %v", err)
 	}
-	if _, statErr := os.Stat(entry.Path); statErr != nil {
-		t.Fatal("被拒绝时文件不应被移动")
+	if len(m.Records) != 1 {
+		t.Fatalf("应有 1 条记录，实际 %d 条", len(m.Records))
+	}
+	if _, statErr := os.Stat(entry.Path); !os.IsNotExist(statErr) {
+		t.Fatal("文件应已移走")
 	}
 }
 

@@ -1,6 +1,7 @@
 package view
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
@@ -109,16 +110,17 @@ func TestCanClean_RequiresSelection(t *testing.T) {
 	}
 }
 
-func TestCanClean_BlockedWhenWeChatRunning(t *testing.T) {
+func TestCanClean_AllowedWhenWeChatRunningButNeedsConfirm(t *testing.T) {
+	// 微信运行不再禁止清理，而是要求二次确认。
 	s := NewState(sample())
 	s.Toggle(0)
 	s.WeChatRunning = true
 
-	if s.CanClean() {
-		t.Fatal("微信运行时应禁止清理")
+	if !s.CanClean() {
+		t.Fatal("微信运行时应允许清理（需二次确认）")
 	}
-	if s.CleanBlockReason() == "" {
-		t.Fatal("应给出禁止原因")
+	if !s.NeedsConfirmWhileRunning() {
+		t.Fatal("应要求二次确认")
 	}
 }
 
@@ -214,9 +216,14 @@ func TestCanClean_AllowsOrphanThumbnailWhileWeChatRunning(t *testing.T) {
 	if reason := s.CleanBlockReason(); reason != "" {
 		t.Fatalf("可清理时原因应为空，实际 %q", reason)
 	}
+	// 孤儿缩略图无风险，不该弹二次确认。
+	if s.NeedsConfirmWhileRunning() {
+		t.Fatal("孤儿缩略图不应需要二次确认")
+	}
 }
 
-func TestCanClean_BlocksChatFileWhileWeChatRunning(t *testing.T) {
+func TestCanClean_AllowsChatFileWhileWeChatRunning(t *testing.T) {
+	// 微信运行时不拦截，改为二次确认——废纸篓 + undo 已是安全网。
 	s := NewState([]model.Entry{
 		{Path: "/msg/file/2025-02/x.pdf", Size: 10, Category: model.CategoryDocument},
 	})
@@ -224,17 +231,19 @@ func TestCanClean_BlocksChatFileWhileWeChatRunning(t *testing.T) {
 	s.Toggle(0)
 	s.WeChatRunning = true
 
-	if s.CanClean() {
-		t.Fatal("微信运行时聊天文件不应可清理")
+	if !s.CanClean() {
+		t.Fatal("微信运行时聊天文件应可清理（需二次确认）")
 	}
-	if s.CleanBlockReason() == "" {
-		t.Fatal("应给出原因")
+	if !s.NeedsConfirmWhileRunning() {
+		t.Fatal("聊天文件应需要二次确认")
+	}
+	if s.RunningWarning() == "" {
+		t.Fatal("应给出风险提示")
 	}
 }
 
-func TestCanClean_BlocksMixedSelectionWhileWeChatRunning(t *testing.T) {
-	// 同一分类里既有孤儿缩略图又有其他文件时，整体不放行——
-	// 只要选中项里有需要退出微信的，就不能因为部分无风险而放行。
+func TestCanClean_AllowsMixedSelectionWhileWeChatRunning(t *testing.T) {
+	// 混合选择也放行，但需要二次确认。
 	s := NewState([]model.Entry{
 		{Path: "/msg/video/2024-09/gone_thumb.jpg", Size: 10,
 			Category: model.CategoryOther, IsOrphanThumbnail: true},
@@ -244,8 +253,11 @@ func TestCanClean_BlocksMixedSelectionWhileWeChatRunning(t *testing.T) {
 	s.SelectAll(true)
 	s.WeChatRunning = true
 
-	if s.CanClean() {
-		t.Fatal("混合选择时不应放行")
+	if !s.CanClean() {
+		t.Fatal("混合选择也应可清理")
+	}
+	if !s.NeedsConfirmWhileRunning() {
+		t.Fatal("含非孤儿条目时应需二次确认")
 	}
 }
 
@@ -259,5 +271,41 @@ func TestCanClean_AllowsEverythingWhenWeChatNotRunning(t *testing.T) {
 
 	if !s.CanClean() {
 		t.Fatal("微信未运行时应可清理")
+	}
+}
+
+func TestRunningWarning_MentionsChatAndCache(t *testing.T) {
+	s := NewState([]model.Entry{
+		{Path: "/msg/video/2024-09/a.mp4", Size: 10, Category: model.CategoryVideo},
+	})
+	s.Toggle(0)
+	s.WeChatRunning = true
+
+	w := s.RunningWarning()
+	if w == "" {
+		t.Fatal("应有提示")
+	}
+	if !strings.Contains(w, "硬链接") {
+		t.Fatalf("聊天文件的提示应说明硬链接记录，实际: %s", w)
+	}
+}
+
+func TestRunningWarning_EmptyWhenNotRunning(t *testing.T) {
+	s := NewState(sample())
+	s.SelectAll(true)
+	s.WeChatRunning = false
+
+	if w := s.RunningWarning(); w != "" {
+		t.Fatalf("微信未运行不应有提示，实际 %q", w)
+	}
+}
+
+func TestNeedsConfirmWhileRunning_FalseWhenNotRunning(t *testing.T) {
+	s := NewState(sample())
+	s.SelectAll(true)
+	s.WeChatRunning = false
+
+	if s.NeedsConfirmWhileRunning() {
+		t.Fatal("微信未运行不应需要额外确认")
 	}
 }

@@ -123,11 +123,11 @@ const (
 	// 微信会重新下载写回，出现「刚清完又占满」的现象。
 	RiskLow
 
-	// RiskMedium 表示建议退出微信再清理。
+	// RiskMedium 表示清理后可能影响微信自己的统计。
 	//
 	// 聊天文件与视频属于这一类：它们可能被 hardlink.db 追踪，
 	// 微信运行中删除虽实测无异常，但可能出现账本与磁盘不一致，
-	// 影响微信自己的「存储空间管理」统计。
+	// 影响微信自己的「存储空间管理」统计。不阻止清理，只做提示。
 	RiskMedium
 )
 
@@ -147,31 +147,27 @@ func RiskOf(e model.Entry) Risk {
 }
 
 // RiskReason 返回某风险等级的中文说明，供界面与 CLI 提示。
+//
+// 这些是提示文案，不是拒绝理由：清理照常进行，用户知情即可。
 func RiskReason(r Risk) string {
 	switch r {
 	case RiskNone:
 		return "可安全清理，微信会按需重建"
 	case RiskLow:
-		return "清理后微信可能重新下载，建议先退出微信"
+		return "清理后若滚到对应聊天记录，微信可能重新下载"
 	default:
-		return "建议先退出微信，避免影响微信的硬链接记录"
+		return "可能影响微信自己的空间统计，不影响文件本身"
 	}
 }
 
-// CheckEntry 校验单个条目，并按类别决定微信运行时是否放行。
+// CheckEntry 校验单个条目。
 //
-// 这是比 Check 更细的入口：Check 只看路径安全，CheckEntry 额外
-// 结合微信运行状态与文件类别给出结论。
+// 只做路径安全校验，不再因微信运行而拒绝——这与用户的实际使用习惯一致：
+// 用户长期用 Finder 直接删微信目录里的文件，没有出现过问题；而且本工具
+// 的删除动作是「移入废纸篓 + 写清单」，随时可 undo，本身就是安全网。
+//
+// 微信运行时的风险改由 RiskOf/RiskReason 提示给用户，由用户在界面上
+// 知情后自行决定，而不是由工具替用户做决定。
 func (c Checker) CheckEntry(e model.Entry) error {
-	if err := c.Check(e.Path); err != nil {
-		return err
-	}
-	if !c.WeChatRunning {
-		return nil
-	}
-	if RiskOf(e) == RiskNone {
-		// 无风险类别：微信运行时也放行。
-		return nil
-	}
-	return ErrWeChatRunning
+	return c.Check(e.Path)
 }

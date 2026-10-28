@@ -5,6 +5,7 @@
 package view
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -140,41 +141,34 @@ func (s *State) SelectionSummary() (count int, bytes int64) {
 
 // CanClean 表示当前是否允许执行清理。
 //
-// 微信运行时不再一律禁止：只有全部选中项都属于无风险类别（孤儿缩略图）
-// 时才放行，其余情况仍需退出微信。判定与 guard.RiskOf 保持一致，
-// 避免界面放行而执行层拒绝。
+// 微信运行时不再拦截任何类别：清理动作是「移入废纸篓 + 写清单」，
+// 随时可 undo，本身就是安全网。风险通过 CleanBlockReason 与
+// RunningWarning 以提示形式呈现，由用户知情后自行决定。
 func (s *State) CanClean() bool {
 	if s.Scanning {
 		return false
 	}
-	selected := s.SelectedEntries()
-	if len(selected) == 0 {
-		return false
-	}
-	if s.WeChatRunning && !allNoRisk(selected) {
-		return false
-	}
-	return true
+	count, _ := s.SelectionSummary()
+	return count > 0
 }
 
 // CleanBlockReason 解释为什么不能清理；可以清理时返回空串。
+//
+// 只在真的做不了时返回内容（未选条目、正在扫描），
+// 微信运行不再作为拒绝理由。
 func (s *State) CleanBlockReason() string {
 	switch {
 	case s.Scanning:
 		return "正在扫描，请稍候"
 	default:
-		selected := s.SelectedEntries()
-		if len(selected) == 0 {
+		if count, _ := s.SelectionSummary(); count == 0 {
 			return "请先勾选要清理的条目"
-		}
-		if s.WeChatRunning && !allNoRisk(selected) {
-			return "微信正在运行：孤儿缩略图可直接清理，其他文件建议先退出微信"
 		}
 		return ""
 	}
 }
 
-// allNoRisk 判断是否全部条目都属于微信运行时也能安全清理的类别。
+// allNoRisk 判断是否全部条目都属于无风险类别。
 //
 // 只认孤儿缩略图：对应视频已不存在，微信不会再读它。
 func allNoRisk(entries []model.Entry) bool {
@@ -184,6 +178,65 @@ func allNoRisk(entries []model.Entry) bool {
 		}
 	}
 	return true
+}
+
+// NeedsConfirmWhileRunning 判断当前选择是否需要二次确认。
+//
+// 微信运行时，只要选中项里有非无风险类别（视频、图片缓存、聊天文件），
+// 就在执行前弹窗确认。工具不替用户决定，只确保用户知情。
+func (s *State) NeedsConfirmWhileRunning() bool {
+	if !s.WeChatRunning {
+		return false
+	}
+	selected := s.SelectedEntries()
+	if len(selected) == 0 {
+		return false
+	}
+	return !allNoRisk(selected)
+}
+
+// RunningWarning 生成微信运行时的风险提示文案；无需提示时返回空串。
+//
+// 按类别给出具体后果，而不是笼统的「有风险」。
+func (s *State) RunningWarning() string {
+	if !s.WeChatRunning {
+		return ""
+	}
+	selected := s.SelectedEntries()
+	if len(selected) == 0 {
+		return ""
+	}
+
+	var hasCache, hasChat bool
+	for _, e := range selected {
+		if e.IsOrphanThumbnail {
+			continue
+		}
+		if e.Category == model.CategoryImageCache {
+			hasCache = true
+			continue
+		}
+		hasChat = true
+	}
+
+	var parts []string
+	if hasChat {
+		parts = append(parts,
+			"聊天文件与视频可能被微信的硬链接记录追踪，删除后微信的「存储空间管理」统计可能对不上（文件本身不受影响）")
+	}
+	if hasCache {
+		parts = append(parts,
+			"图片缓存删除后，如果你滚到对应聊天记录，微信会重新下载写回")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+
+	out := "微信正在运行：\n"
+	for i, p := range parts {
+		out += fmt.Sprintf("%d. %s\n", i+1, p)
+	}
+	return out
 }
 
 // CategoryTotals 按分类汇总字节数，用于左侧分类树。
