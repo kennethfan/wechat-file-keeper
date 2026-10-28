@@ -140,13 +140,21 @@ func (s *State) SelectionSummary() (count int, bytes int64) {
 
 // CanClean 表示当前是否允许执行清理。
 //
-// 微信运行时一律禁止：清理会改动微信正在使用的文件。
+// 微信运行时不再一律禁止：只有全部选中项都属于无风险类别（孤儿缩略图）
+// 时才放行，其余情况仍需退出微信。判定与 guard.RiskOf 保持一致，
+// 避免界面放行而执行层拒绝。
 func (s *State) CanClean() bool {
-	if s.WeChatRunning || s.Scanning {
+	if s.Scanning {
 		return false
 	}
-	count, _ := s.SelectionSummary()
-	return count > 0
+	selected := s.SelectedEntries()
+	if len(selected) == 0 {
+		return false
+	}
+	if s.WeChatRunning && !allNoRisk(selected) {
+		return false
+	}
+	return true
 }
 
 // CleanBlockReason 解释为什么不能清理；可以清理时返回空串。
@@ -154,14 +162,28 @@ func (s *State) CleanBlockReason() string {
 	switch {
 	case s.Scanning:
 		return "正在扫描，请稍候"
-	case s.WeChatRunning:
-		return "微信正在运行，请先退出微信"
 	default:
-		if count, _ := s.SelectionSummary(); count == 0 {
+		selected := s.SelectedEntries()
+		if len(selected) == 0 {
 			return "请先勾选要清理的条目"
+		}
+		if s.WeChatRunning && !allNoRisk(selected) {
+			return "微信正在运行：孤儿缩略图可直接清理，其他文件建议先退出微信"
 		}
 		return ""
 	}
+}
+
+// allNoRisk 判断是否全部条目都属于微信运行时也能安全清理的类别。
+//
+// 只认孤儿缩略图：对应视频已不存在，微信不会再读它。
+func allNoRisk(entries []model.Entry) bool {
+	for _, e := range entries {
+		if !e.IsOrphanThumbnail {
+			return false
+		}
+	}
+	return true
 }
 
 // CategoryTotals 按分类汇总字节数，用于左侧分类树。

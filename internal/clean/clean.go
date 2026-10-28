@@ -61,17 +61,18 @@ func Build(opts Options) Plan {
 
 // Apply 执行清理计划。
 //
-// 先过护栏再动文件：任一目标越界或微信在运行，整体拒绝，
-// 保证不会出现「删了一半才发现不该删」的局面。
+// 先逐条过护栏再动文件：任一目标越界、或在微信运行时属于不宜清理的
+// 类别，就整体拒绝，保证不会出现「删了一半才发现不该删」的局面。
+//
+// 微信运行时的判定按文件类别区分（见 guard.RiskOf）：
+// 孤儿缩略图照常清理，图片缓存与聊天文件则要求先退出微信。
 func Apply(plan Plan, msgRoot string, weChatRunning bool, cleaner *trash.Cleaner) (trash.Manifest, error) {
 	checker := guard.Checker{MsgRoot: msgRoot, WeChatRunning: weChatRunning}
 
-	paths := make([]string, 0, len(plan.Selected))
 	for _, e := range plan.Selected {
-		paths = append(paths, e.Path)
-	}
-	if err := checker.CheckAll(paths); err != nil {
-		return trash.Manifest{}, err
+		if err := checker.CheckEntry(e); err != nil {
+			return trash.Manifest{}, fmt.Errorf("%s: %w", filepath.Base(e.Path), err)
+		}
 	}
 
 	return cleaner.Move(plan.Selected)

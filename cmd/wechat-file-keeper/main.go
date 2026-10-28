@@ -440,6 +440,11 @@ func runClean(root, libPath, category, minSize string, limit int, orphansOnly, i
 	fmt.Printf("将移入废纸篓 %s 项，合计 %s\n",
 		format.Count(len(plan.Selected)), format.Bytes(plan.TotalBytes))
 
+	// 微信运行时按类别提示风险，而不是一刀切拒绝。
+	if guard.IsWeChatRunning() {
+		printRunningRisk(plan.Selected)
+	}
+
 	if !yes {
 		fmt.Println()
 		fmt.Println("这是预览。确认执行请加 --yes。")
@@ -513,4 +518,35 @@ func runUndo(manifestPath string) error {
 		fmt.Printf("未恢复 %s 项\n", format.Count(len(res.Skipped)))
 	}
 	return nil
+}
+
+// printRunningRisk 在微信运行时提示各风险类别的条目数量。
+//
+// 不再一律拒绝，而是让用户知道哪些能清、哪些建议先退出微信。
+func printRunningRisk(entries []model.Entry) {
+	counts := make(map[guard.Risk]int, 3)
+	for _, e := range entries {
+		counts[guard.RiskOf(e)]++
+	}
+
+	fmt.Println()
+	fmt.Println("微信正在运行：")
+	for _, r := range []guard.Risk{guard.RiskNone, guard.RiskLow, guard.RiskMedium} {
+		if counts[r] == 0 {
+			continue
+		}
+		fmt.Printf("  %s 的 %d 项：%s\n", riskName(r), counts[r], guard.RiskReason(r))
+	}
+}
+
+// riskName 返回风险等级的中文名。
+func riskName(r guard.Risk) string {
+	switch r {
+	case guard.RiskNone:
+		return "无风险"
+	case guard.RiskLow:
+		return "低风险"
+	default:
+		return "需注意"
+	}
 }

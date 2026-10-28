@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/kennethfan/wechat-file-keeper/internal/model"
 )
 
 // testRoot 是测试用的消息区根目录。
@@ -18,13 +20,99 @@ func TestCheck_AllowsPathInsideMsgRoot(t *testing.T) {
 	}
 }
 
-func TestCheck_RejectsWhenWeChatRunning(t *testing.T) {
+func TestCheck_IgnoresWeChatState(t *testing.T) {
+	// Check 只看路径安全性，微信运行状态由 CheckEntry 判断。
 	c := Checker{MsgRoot: testRoot, WeChatRunning: true}
 	target := filepath.Join(testRoot, "video/2024-09/abc.mp4")
 
-	err := c.Check(target)
-	if !errors.Is(err, ErrWeChatRunning) {
-		t.Fatalf("微信运行时应返回 ErrWeChatRunning，实际: %v", err)
+	if err := c.Check(target); err != nil {
+		t.Fatalf("Check 不应因微信运行而拒绝，实际: %v", err)
+	}
+}
+
+func TestCheckEntry_AllowsOrphanThumbnailWhileRunning(t *testing.T) {
+	// 孤儿缩略图无风险：微信运行时也应放行。
+	c := Checker{MsgRoot: testRoot, WeChatRunning: true}
+	e := model.Entry{
+		Path:              filepath.Join(testRoot, "video/2024-09/gone_thumb.jpg"),
+		IsOrphanThumbnail: true,
+	}
+
+	if err := c.CheckEntry(e); err != nil {
+		t.Fatalf("孤儿缩略图在微信运行时应可清理，实际: %v", err)
+	}
+}
+
+func TestCheckEntry_RejectsImageCacheWhileRunning(t *testing.T) {
+	c := Checker{MsgRoot: testRoot, WeChatRunning: true}
+	e := model.Entry{
+		Path:     filepath.Join(testRoot, "attach/a/2025-08/Img/x.dat"),
+		Category: model.CategoryImageCache,
+	}
+
+	if err := c.CheckEntry(e); !errors.Is(err, ErrWeChatRunning) {
+		t.Fatalf("图片缓存应要求退出微信，实际: %v", err)
+	}
+}
+
+func TestCheckEntry_RejectsChatFileWhileRunning(t *testing.T) {
+	c := Checker{MsgRoot: testRoot, WeChatRunning: true}
+	e := model.Entry{
+		Path:     filepath.Join(testRoot, "file/2025-02/x.pdf"),
+		Category: model.CategoryDocument,
+	}
+
+	if err := c.CheckEntry(e); !errors.Is(err, ErrWeChatRunning) {
+		t.Fatalf("聊天文件应要求退出微信，实际: %v", err)
+	}
+}
+
+func TestCheckEntry_AllowsEverythingWhenNotRunning(t *testing.T) {
+	c := Checker{MsgRoot: testRoot, WeChatRunning: false}
+	for _, e := range []model.Entry{
+		{Path: filepath.Join(testRoot, "video/a.mp4"), Category: model.CategoryVideo},
+		{Path: filepath.Join(testRoot, "attach/x.dat"), Category: model.CategoryImageCache},
+	} {
+		if err := c.CheckEntry(e); err != nil {
+			t.Fatalf("微信未运行时 %s 应可清理，实际: %v", e.Path, err)
+		}
+	}
+}
+
+func TestCheckEntry_StillRejectsOutOfBounds(t *testing.T) {
+	// 路径安全校验不受微信状态影响。
+	c := Checker{MsgRoot: testRoot, WeChatRunning: false}
+	e := model.Entry{Path: "/Users/k/Desktop/x.pdf"}
+
+	if err := c.CheckEntry(e); !errors.Is(err, ErrOutsideRoot) {
+		t.Fatalf("越界路径应被拒绝，实际: %v", err)
+	}
+}
+
+func TestRiskOf(t *testing.T) {
+	cases := []struct {
+		name string
+		e    model.Entry
+		want Risk
+	}{
+		{"孤儿缩略图", model.Entry{IsOrphanThumbnail: true}, RiskNone},
+		{"图片缓存", model.Entry{Category: model.CategoryImageCache}, RiskLow},
+		{"聊天视频", model.Entry{Category: model.CategoryVideo}, RiskMedium},
+		{"聊天文档", model.Entry{Category: model.CategoryDocument}, RiskMedium},
+		{"压缩包", model.Entry{Category: model.CategoryArchive}, RiskMedium},
+	}
+	for _, c := range cases {
+		if got := RiskOf(c.e); got != c.want {
+			t.Fatalf("%s 的风险应为 %v，实际 %v", c.name, c.want, got)
+		}
+	}
+}
+
+func TestRiskReason_NonEmpty(t *testing.T) {
+	for _, r := range []Risk{RiskNone, RiskLow, RiskMedium} {
+		if RiskReason(r) == "" {
+			t.Fatalf("风险 %v 应有说明文案", r)
+		}
 	}
 }
 

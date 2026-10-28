@@ -196,3 +196,68 @@ func TestMatchName(t *testing.T) {
 		t.Fatal("不应匹配")
 	}
 }
+
+func TestCanClean_AllowsOrphanThumbnailWhileWeChatRunning(t *testing.T) {
+	// 孤儿缩略图无风险：微信运行时也应允许清理。
+	s := NewState([]model.Entry{
+		{Path: "/msg/video/2024-09/gone_thumb.jpg", Size: 10,
+			Category: model.CategoryOther, IsOrphanThumbnail: true},
+	})
+	// 孤儿缩略图归「其他」分类，需先切过去才能看到该行。
+	s.SetCategory(model.CategoryOther)
+	s.Toggle(0)
+	s.WeChatRunning = true
+
+	if !s.CanClean() {
+		t.Fatal("微信运行时孤儿缩略图应可清理")
+	}
+	if reason := s.CleanBlockReason(); reason != "" {
+		t.Fatalf("可清理时原因应为空，实际 %q", reason)
+	}
+}
+
+func TestCanClean_BlocksChatFileWhileWeChatRunning(t *testing.T) {
+	s := NewState([]model.Entry{
+		{Path: "/msg/file/2025-02/x.pdf", Size: 10, Category: model.CategoryDocument},
+	})
+	s.SetCategory(model.CategoryDocument)
+	s.Toggle(0)
+	s.WeChatRunning = true
+
+	if s.CanClean() {
+		t.Fatal("微信运行时聊天文件不应可清理")
+	}
+	if s.CleanBlockReason() == "" {
+		t.Fatal("应给出原因")
+	}
+}
+
+func TestCanClean_BlocksMixedSelectionWhileWeChatRunning(t *testing.T) {
+	// 同一分类里既有孤儿缩略图又有其他文件时，整体不放行——
+	// 只要选中项里有需要退出微信的，就不能因为部分无风险而放行。
+	s := NewState([]model.Entry{
+		{Path: "/msg/video/2024-09/gone_thumb.jpg", Size: 10,
+			Category: model.CategoryOther, IsOrphanThumbnail: true},
+		{Path: "/msg/file/2025-02/setup.exe", Size: 20, Category: model.CategoryOther},
+	})
+	s.SetCategory(model.CategoryOther)
+	s.SelectAll(true)
+	s.WeChatRunning = true
+
+	if s.CanClean() {
+		t.Fatal("混合选择时不应放行")
+	}
+}
+
+func TestCanClean_AllowsEverythingWhenWeChatNotRunning(t *testing.T) {
+	s := NewState([]model.Entry{
+		{Path: "/msg/file/2025-02/x.pdf", Size: 10, Category: model.CategoryDocument},
+	})
+	s.SetCategory(model.CategoryDocument)
+	s.Toggle(0)
+	s.WeChatRunning = false
+
+	if !s.CanClean() {
+		t.Fatal("微信未运行时应可清理")
+	}
+}

@@ -1,9 +1,21 @@
 // Package guard 是清理操作的安全闸门。
 //
 // 设计原则：默认拒绝。只有同时满足以下条件的目标才被允许操作：
-//  1. 微信进程未运行；
-//  2. 路径是绝对路径，且不含 ".." 穿越成分；
-//  3. 路径位于当前账号库的消息区之下，且不等于消息区根目录本身。
+//  1. 路径是绝对路径，且不含 ".." 穿越成分；
+//  2. 路径位于当前账号库的消息区之下，且不等于消息区根目录本身；
+//  3. 微信运行时的额外限制——见 Checker.AllowWhileRunning 的说明。
+//
+// 关于「微信运行时是否禁止清理」：早期版本一律禁止，理由是担心
+// 微信的 hardlink.db 账本与实际文件不一致。但实测证据不支持这个担心：
+//
+//   - 微信运行时并不持有 msg/ 下任何聊天文件的句柄（lsof 证实），
+//     它打开的是 db_storage 与系统文件；
+//   - 用户用 Finder 删除过 msg/file 里的硬链接副本（链接数从 5 变 4），
+//     微信没有异常，32 MB 的运行日志里没有任何 hardlink 或
+//     file-not-found 错误；
+//   - 删除孤儿缩略图这类文件后微信只会按需重建。
+//
+// 因此微信运行时不再一律拒绝，改为按文件类别区分风险（见 RiskOf）。
 package guard
 
 import (
@@ -11,11 +23,16 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/kennethfan/wechat-file-keeper/internal/model"
 )
 
 var (
-	// ErrWeChatRunning 微信正在运行，此时清理可能导致微信异常。
-	ErrWeChatRunning = errors.New("微信正在运行，请先退出微信")
+	// ErrWeChatRunning 表示该文件在微信运行时不宜清理。
+	//
+	// 不再是「微信在跑就全拒」，而是针对具体类别给出原因，
+	// 详见 RiskOf 与 Checker.CheckEntry。
+	ErrWeChatRunning = errors.New("微信正在运行，此类文件建议先退出微信再清理")
 	// ErrEmptyPath 路径为空。
 	ErrEmptyPath = errors.New("路径为空")
 	// ErrRelativePath 路径不是绝对路径。
@@ -38,13 +55,12 @@ type Checker struct {
 	WeChatRunning bool
 }
 
-// Check 校验单个目标路径。
+// Check 校验单个目标路径的安全性。
 //
-// 多个目标时应先逐个 Check 再执行，避免部分删除后才发现越界。
+// 只看路径本身：是否绝对、是否含穿越成分、是否在消息区之下。
+// 微信运行状态不在这里判断——那需要知道文件类别，见 CheckEntry。
+// 需要同时考虑两者的调用方应使用 CheckEntry。
 func (c Checker) Check(path string) error {
-	if c.WeChatRunning {
-		return ErrWeChatRunning
-	}
 	if strings.TrimSpace(path) == "" {
 		return ErrEmptyPath
 	}
@@ -89,4 +105,73 @@ func hasDotDot(path string) bool {
 		}
 	}
 	return false
+}
+
+// Risk 描述某类文件在微信运行时被清理的风险等级。
+type Risk int
+
+const (
+	// RiskNone 表示微信运行时可以安全清理。
+	//
+	// 孤儿缩略图属于这一类：对应视频已不存在，微信不会再读它，
+	// 也不在 hardlink.db 的账本里；将来若又需要，微信会重新生成。
+	RiskNone Risk = iota
+
+	// RiskLow 表示微信运行时可清理，但可能被立即重建。
+	//
+	// 图片缓存属于这一类：删掉后如果用户滚到对应聊天记录，
+	// 微信会重新下载写回，出现「刚清完又占满」的现象。
+	RiskLow
+
+	// RiskMedium 表示建议退出微信再清理。
+	//
+	// 聊天文件与视频属于这一类：它们可能被 hardlink.db 追踪，
+	// 微信运行中删除虽实测无异常，但可能出现账本与磁盘不一致，
+	// 影响微信自己的「存储空间管理」统计。
+	RiskMedium
+)
+
+// RiskOf 返回条目在微信运行时被清理的风险等级。
+//
+// 判定依据是实测证据，而不是笼统的「微信在跑就别动」：
+// 孤儿缩略图无风险，图片缓存低风险（会被重建），
+// 聊天文件与视频中风险（可能影响微信的硬链接账本）。
+func RiskOf(e model.Entry) Risk {
+	if e.IsOrphanThumbnail {
+		return RiskNone
+	}
+	if e.Category == model.CategoryImageCache {
+		return RiskLow
+	}
+	return RiskMedium
+}
+
+// RiskReason 返回某风险等级的中文说明，供界面与 CLI 提示。
+func RiskReason(r Risk) string {
+	switch r {
+	case RiskNone:
+		return "可安全清理，微信会按需重建"
+	case RiskLow:
+		return "清理后微信可能重新下载，建议先退出微信"
+	default:
+		return "建议先退出微信，避免影响微信的硬链接记录"
+	}
+}
+
+// CheckEntry 校验单个条目，并按类别决定微信运行时是否放行。
+//
+// 这是比 Check 更细的入口：Check 只看路径安全，CheckEntry 额外
+// 结合微信运行状态与文件类别给出结论。
+func (c Checker) CheckEntry(e model.Entry) error {
+	if err := c.Check(e.Path); err != nil {
+		return err
+	}
+	if !c.WeChatRunning {
+		return nil
+	}
+	if RiskOf(e) == RiskNone {
+		// 无风险类别：微信运行时也放行。
+		return nil
+	}
+	return ErrWeChatRunning
 }
