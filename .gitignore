@@ -15,3 +15,6 @@ coverage.html
 
 # 本地临时草稿
 .scratch/
+
+# 测试用的临时 HOME
+.testhome/
