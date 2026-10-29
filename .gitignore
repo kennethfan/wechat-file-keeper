@@ -1,6 +1,8 @@
 # 构建产物
-bin/
-dist/
+# 注意：/dist/ 加前导斜杠只匹配仓库根目录，
+# 否则会连 frontend/dist（前端源码，被 go:embed 内嵌）一起忽略。
+/bin/
+/dist/
 *.app
 *.out
 coverage.html
@@ -21,3 +23,8 @@ coverage.html
 
 # Wails 生成物（已不使用绑定机制，仅保留构建目录忽略）
 build/
+
+# 显式取消忽略：frontend/dist 是前端源码，被 go:embed 内嵌进二进制。
+# 全局 ignore 规则（~/.ignore_default）里的 dist/ 会误伤它。
+!frontend/dist/
+!frontend/dist/**

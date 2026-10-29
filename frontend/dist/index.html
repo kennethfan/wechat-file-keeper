@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>微清 WeClean — 微信文件清理</title>
+<link rel="stylesheet" href="/src/style.css">
+<script>
+// 诊断用：在模块加载前就挂上错误捕获，把失败原因显示在页面上。
+window.__wfkErrors = [];
+window.addEventListener('error', function (ev) {
+  var msg = ev.message || (ev.target && ev.target.src) || 'unknown';
+  window.__wfkErrors.push(msg);
+  var el = document.getElementById('boot-error');
+  if (el) { el.hidden = false; el.textContent = '启动错误: ' + window.__wfkErrors.join(' | '); }
+}, true);
+window.addEventListener('unhandledrejection', function (ev) {
+  window.__wfkErrors.push('promise: ' + ev.reason);
+});
+</script>
+</head>
+<body>
+
+<!-- 自绘标题栏：隐藏系统标题栏后由这里承担红绿灯区域 -->
+<!-- 标题栏：红绿灯由 macOS 系统绘制在左上角，
+     这里只保留中间标题与右侧徽章，并留出左侧空间避开红绿灯。 -->
+<div class="titlebar">
+  <div class="tb-title">微清 WeClean — 微信文件清理</div>
+  <div class="tb-badge" id="tbBadge">微信 4.x</div>
+</div>
+
+<div id="boot-error" hidden style="padding:12px 18px;background:#ffe5e5;color:#a00;font-size:12px;border-bottom:1px solid #f5b5b5"></div>
+
+<div class="app">
+  <!-- 侧边栏 -->
+  <aside class="sidebar">
+    <div class="wx-chip">
+      <div class="wx-avatar">微</div>
+      <div class="wx-meta">
+        <b id="wxName">微信账号</b>
+        <span id="wxPath">等待体检</span>
+      </div>
+    </div>
+
+    <div class="nav-label">清理</div>
+    <button class="nav-item active" data-view="overview">
+      <span class="ico">📊</span>数据体检
+    </button>
+    <button class="nav-item" data-view="months">
+      <span class="ico">📅</span>按月份清理
+      <span class="cnt" id="navCntM">0</span>
+    </button>
+    <button class="nav-item" data-view="orphans">
+      <span class="ico">🧩</span>孤儿与缓存
+      <span class="cnt" id="navCntO">0</span>
+    </button>
+
+    <div class="nav-label">安全</div>
+    <button class="nav-item" data-view="safety">
+      <span class="ico">🛡</span>安全承诺
+    </button>
+
+    <button class="nav-item" id="btnUndo" disabled>
+      <span class="ico">↩︎</span>撤销上次清理
+    </button>
+
+    <div class="sidebar-foot">
+      <div><span class="safe">●</span> 只读体检，不改动文件</div>
+      <div><span class="no">⛔</span> 不碰 db_storage 聊天记录</div>
+      <div>清理 = 移入废纸篓，可撤销</div>
+    </div>
+  </aside>
+
+  <!-- 主内容区 -->
+  <main>
+    <!-- 微信运行横幅 -->
+    <div class="banner" id="banner" hidden>
+      <span class="pulse"></span>
+      <span id="bannerText">检测到微信正在运行，部分媒体文件可能被占用</span>
+      <button class="btn btn-ghost btn-sm" id="btnBannerOk">知道了</button>
+    </div>
+
+    <div class="main-head">
+      <h1 id="pageTitle">数据体检</h1>
+      <span class="sub" id="pageSub">只读分析 · 不改动任何文件</span>
+      <div class="head-spacer"></div>
+      <button class="btn btn-ghost" id="btnRescan" hidden>重新体检</button>
+    </div>
+
+    <div class="main-body">
+
+      <!-- 视图：数据体检 -->
+      <section class="view show" id="view-overview">
+        <div class="hero">
+          <div class="ring-wrap">
+            <svg class="ring" viewBox="0 0 120 120" id="bigRing">
+              <circle class="ring-bg" cx="60" cy="60" r="52"/>
+              <circle class="ring-fg" cx="60" cy="60" r="52" id="ringFg"/>
+            </svg>
+            <div class="ring-center">
+              <b id="ringValue">—</b>
+              <span id="ringUnit">实占</span>
+            </div>
+          </div>
+          <div class="hero-info">
+            <h2 id="heroTitle">还没有体检</h2>
+            <p class="muted" id="heroDesc">
+              微信数据目录：<code>~/Library/Containers/com.tencent.xinWeChat/…/xwechat_files/</code>
+            </p>
+            <div class="hero-actions">
+              <button class="btn btn-primary btn-lg" id="btnScan">✨ 开始体检</button>
+              <span class="muted" id="scanHint">只读分析 · 约 3 秒</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="cards" id="catCards"></div>
+
+        <div class="tiles" id="entryTiles" hidden>
+          <button class="tile" data-goto="months">
+            <span class="tile-ico">📅</span>
+            <b>按月份清理</b>
+            <span class="muted" id="tileMonths">—</span>
+          </button>
+          <button class="tile" data-goto="orphans">
+            <span class="tile-ico">🧩</span>
+            <b>孤儿与缓存</b>
+            <span class="muted" id="tileOrphans">—</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 视图：按月份清理 -->
+      <section class="view" id="view-months">
+        <div class="toolbar">
+          <div class="seg" id="typeFilter">
+            <button class="seg-btn active" data-type="全部">全部</button>
+            <button class="seg-btn" data-type="视频">🎬 视频</button>
+            <button class="seg-btn" data-type="文档">📄 文件</button>
+            <button class="seg-btn" data-type="图片缓存">🖼 图片</button>
+            <button class="seg-btn" data-type="其他">其他</button>
+          </div>
+          <div class="seg" id="sizeFilter">
+            <button class="seg-btn active" data-size="0">全部大小</button>
+            <button class="seg-btn" data-size="10485760">≥10MB</button>
+            <button class="seg-btn" data-size="104857600">≥100MB</button>
+          </div>
+          <label class="switch-row">
+            <span class="switch on" id="groupSwitch" role="switch" aria-checked="true" tabindex="0">
+              <span class="knob"></span>
+            </span>
+            <span id="groupLabel">按月份分组</span>
+          </label>
+        </div>
+
+        <div id="monthList" class="month-list"></div>
+        <div class="empty" id="monthEmpty" hidden>当前筛选下暂无可清理项</div>
+      </section>
+
+      <!-- 视图：孤儿与缓存 -->
+      <section class="view" id="view-orphans">
+        <div class="note">
+          孤儿文件 = 无法再被微信引用的残留（如只有缩略图没有视频本体）。
+          清理零风险，微信会按需重建。
+        </div>
+        <div class="grp-card">
+          <div class="grp-head">
+            <span class="grp-ico orphan">🧩</span>
+            <div class="grp-title">
+              <b>孤儿缩略图</b>
+              <span class="tag tag-warn">零风险</span>
+            </div>
+            <div class="grp-nums">
+              <b id="orphanSize">—</b>
+              <span id="orphanCount">—</span>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btnPickOrphans">全选</button>
+            <button class="btn btn-danger btn-sm" id="btnCleanOrphans" disabled>移入废纸篓</button>
+          </div>
+          <div class="file-grid" id="orphanGrid"></div>
+        </div>
+        <div class="empty" id="orphanEmpty" hidden>没有发现孤儿文件</div>
+      </section>
+
+      <!-- 视图：安全承诺 -->
+      <section class="view" id="view-safety">
+        <div class="safe-list">
+          <div class="safe-item">
+            <span class="safe-ico ok">✓</span>
+            <div>
+              <b>只读体检</b>
+              <p>分析阶段不改动任何文件，仅统计大小与分类。</p>
+            </div>
+          </div>
+          <div class="safe-item">
+            <span class="safe-ico no">⛔</span>
+            <div>
+              <b>不碰聊天记录</b>
+              <p><code>db_storage/</code> 下的聊天数据库完全排除在扫描与清理范围外。</p>
+            </div>
+          </div>
+          <div class="safe-item">
+            <span class="safe-ico ok">↩︎</span>
+            <div>
+              <b>废纸篓语义</b>
+              <p>清理通过 Finder 移入系统废纸篓，与你自己在 Finder 里删除完全一致：
+              废纸篓里有「放回原处」可还原。也可在终端执行 <code>wechat-file-keeper undo</code>。</p>
+            </div>
+          </div>
+          <div class="safe-item">
+            <span class="safe-ico warn">⚠</span>
+            <div>
+              <b>能力边界</b>
+              <p>微信 4.x 的视频与文件是全局按月池，无法定位到具体会话。本工具如实标注，不假装知道。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- 底部汇总栏 -->
+    <div class="action-bar" id="actionBar" hidden>
+      <div class="sum">
+        <b id="sumSize">0 B</b>
+        <span id="sumDetail">未选择</span>
+      </div>
+      <div class="sum-actions">
+        <button class="btn btn-ghost" id="btnClear">取消选择</button>
+        <button class="btn btn-danger" id="btnClean" disabled>🗑 移入废纸篓</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- 确认弹窗 -->
+<div class="overlay" id="overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-ico">⚠️</div>
+    <h3 id="mTitle">确认清理这些微信文件？</h3>
+    <p class="muted" id="mSub">—</p>
+    <div class="trust" id="mTrust">移入废纸篓 · 聊天记录不受影响 · 可撤销</div>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="mCancel">取消</button>
+      <button class="btn btn-danger" id="mConfirm">移入废纸篓</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="/src/app.js"></script>
+</body>
+</html>
