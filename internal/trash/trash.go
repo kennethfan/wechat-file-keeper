@@ -64,8 +64,12 @@ type Cleaner struct {
 	Library string
 	// Now 便于测试注入时间，为空时使用 time.Now。
 	Now func() time.Time
-	// Method 指定删除方式，空值等同 MethodRename。
+	// Method 指定删除方式。已废弃：现在只有 Finder 一种。
 	Method Method
+	// finderMove 可注入，便于测试；为 nil 时用真实的 FinderMove。
+	finderMove func(paths []string) error
+	// findTrashPath 可注入，便于测试；为 nil 时用真实的 FindTrashPath。
+	findTrashPath func(original string) (string, error)
 }
 
 // New 创建使用默认位置的清理器。
@@ -99,12 +103,15 @@ func (c *Cleaner) Move(entries []model.Entry) (Manifest, error) {
 		Records:   make([]Record, 0, len(entries)),
 	}
 
-	// Finder 模式：交给 Finder 删除，系统会记录原路径。
-	// 失败时回退到 rename，保证清理动作不会因为授权问题完全不可用。
-	if c.Method == MethodFinder {
-		return c.moveViaFinder(entries, m, now)
-	}
+	// 唯一删除方式：交给 Finder。
+	//
+	// 之前还有一条 rename 路径（自己搬进 ~/.Trash），但那条路的问题在于
+	// 系统不记录原路径，废纸篓里既没有「放回原处」也难以辨认——等于自己
+	// 造了个废纸篓。既然目标就是系统废纸篓，直接用 Finder 才说得通。
+	return c.moveViaFinder(entries, m, now)
+}
 
+func (c *Cleaner) moveViaFinderUnused(entries []model.Entry, m Manifest, now func() time.Time) (Manifest, error) {
 	if c.TrashDir == "" {
 		return m, fmt.Errorf("无法确定废纸篓目录")
 	}
@@ -296,19 +303,23 @@ func (c *Cleaner) moveViaFinder(entries []model.Entry, m Manifest, now func() ti
 		byPath[e.Path] = e
 	}
 
-	if err := FinderMove(paths); err != nil {
-		// 回退到 rename：把 Method 清空后走原路径。
-		fallback := *c
-		fallback.Method = MethodRename
-		res, fbErr := fallback.Move(entries)
-		if fbErr != nil {
-			return res, fmt.Errorf("%v；回退 rename 也失败: %w", err, fbErr)
-		}
-		return res, nil
+	mover := c.finderMove
+	if mover == nil {
+		mover = FinderMove
+	}
+	if err := mover(paths); err != nil {
+		// 不回退到 rename：那样会得到一个「用户以为能放回原处、
+		// 实际不能」的废纸篓，比直接失败更糟。
+		return m, fmt.Errorf("移入废纸篓失败：%w\n\n请到「系统设置 → 隐私与安全性 → 自动化」允许本应用控制 Finder", err)
+	}
+
+	finder := c.findTrashPath
+	if finder == nil {
+		finder = FindTrashPath
 	}
 
 	for _, p := range paths {
-		trashed, findErr := FindTrashPath(p)
+		trashed, findErr := finder(p)
 		if findErr != nil {
 			// 找不到落点也要记录，撤销时会被跳过并报告。
 			trashed = ""
@@ -329,4 +340,38 @@ func (c *Cleaner) moveViaFinder(entries []model.Entry, m Manifest, now func() ti
 		}
 	}
 	return m, nil
+}
+
+// NewForTest 构造一个把文件搬到指定目录的 Cleaner，供其他包的测试使用。
+//
+// 真实删除走 Finder，需要系统授权，单元测试无法依赖。
+// 这个构造器用 rename 模拟 Finder 的行为，只验证上层逻辑。
+func NewForTest(trashDir, manifestDir string, now func() time.Time) *Cleaner {
+	return &Cleaner{
+		TrashDir:    trashDir,
+		ManifestDir: manifestDir,
+		Now:         now,
+		finderMove: func(paths []string) error {
+			for _, p := range paths {
+				dest := filepath.Join(trashDir, filepath.Base(p))
+				if _, err := os.Stat(dest); err == nil {
+					dest = filepath.Join(trashDir, "dup-"+filepath.Base(p))
+				}
+				if err := os.Rename(p, dest); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		findTrashPath: func(original string) (string, error) {
+			base := filepath.Base(original)
+			for _, name := range []string{base, "dup-" + base} {
+				p := filepath.Join(trashDir, name)
+				if _, err := os.Stat(p); err == nil {
+					return p, nil
+				}
+			}
+			return "", os.ErrNotExist
+		},
+	}
 }

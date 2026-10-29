@@ -4,7 +4,7 @@
 
 BINARY  := wechat-file-keeper
 BUILD   := bin
-PKG     := ./cmd/wechat-file-keeper
+PKG     := .
 DIST    := dist
 APP     := $(DIST)/微信文件管家.app
 VERSION := 0.1.0

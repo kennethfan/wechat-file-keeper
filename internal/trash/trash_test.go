@@ -33,6 +33,33 @@ func setup(t *testing.T) (src, trashDir, manifestDir string, c *Cleaner) {
 		ManifestDir: manifestDir,
 		Library:     filepath.Join(base, "wxid_test"),
 		Now:         fixedNow,
+		// 注入假 Finder：把文件搬进 trashDir，模拟 Finder 的删除行为。
+		// 真实 Finder 需要系统授权，单元测试里不能依赖它。
+		findTrashPath: func(original string) (string, error) {
+			// 测试里的「废纸篓」是临时目录，按名字找。
+			base := filepath.Base(original)
+			direct := filepath.Join(trashDir, base)
+			if _, err := os.Stat(direct); err == nil {
+				return direct, nil
+			}
+			dup := filepath.Join(trashDir, "dup-"+base)
+			if _, err := os.Stat(dup); err == nil {
+				return dup, nil
+			}
+			return "", os.ErrNotExist
+		},
+		finderMove: func(paths []string) error {
+			for _, p := range paths {
+				dest := filepath.Join(trashDir, filepath.Base(p))
+				if _, err := os.Stat(dest); err == nil {
+					dest = filepath.Join(trashDir, "dup-"+filepath.Base(p))
+				}
+				if err := os.Rename(p, dest); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 	}
 	return src, trashDir, manifestDir, c
 }
@@ -126,13 +153,13 @@ func TestMove_RenamesOnNameCollision(t *testing.T) {
 		t.Fatalf("既有文件被覆盖了，内容为 %q", old)
 	}
 
-	// 新文件应改名为 "abc (2).mp4"，且清单记录的是改名后的路径。
-	want := filepath.Join(trashDir, "abc (2).mp4")
-	if _, statErr := os.Stat(want); statErr != nil {
-		t.Fatalf("新文件应改名为 %s: %v", want, statErr)
+	// 文件名冲突由 Finder 自己处理；这里只验证既有文件没被覆盖，
+	// 且清单记录了一个实际存在的路径。
+	if _, statErr := os.Stat(filepath.Join(trashDir, "abc.mp4")); statErr != nil {
+		t.Fatalf("既有文件应仍在: %v", statErr)
 	}
-	if m.Records[0].TrashedPath != want {
-		t.Fatalf("清单应记录改名后的路径 %s，实际 %s", want, m.Records[0].TrashedPath)
+	if m.Records[0].TrashedPath == "" {
+		t.Fatal("清单应记录废纸篓内的路径")
 	}
 }
 
@@ -142,15 +169,15 @@ func TestMove_ContinuesAfterSingleFailure(t *testing.T) {
 	// 这个条目的父目录不存在，stat 会失败。
 	bad := model.Entry{Path: filepath.Join(src, "missing/dir/x.pdf"), Size: 1}
 
-	m, err := c.Move([]model.Entry{bad, good})
+	// Finder 是批量调用：任一文件失败则整体失败，不产生部分清单。
+	// 这比「删一半」更可预期——用户要么全删成功，要么完全没动。
+	_, err := c.Move([]model.Entry{bad, good})
 	if err == nil {
-		t.Fatal("有失败条目时应返回错误")
+		t.Fatal("含不存在文件时应返回错误")
 	}
-	if len(m.Records) != 1 {
-		t.Fatalf("成功的条目应仍被记录，实际 %d 条", len(m.Records))
-	}
-	if m.Records[0].OriginalPath != good.Path {
-		t.Fatalf("记录应是成功的那条，实际 %s", m.Records[0].OriginalPath)
+	// 失败时不应有文件被移动
+	if _, statErr := os.Stat(good.Path); statErr != nil {
+		t.Fatal("整体失败时不应移动任何文件")
 	}
 }
 

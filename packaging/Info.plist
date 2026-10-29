@@ -25,6 +25,9 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<!-- 需要读取微信容器内的文件，故声明为支持文档的普通应用。 -->
+	<!-- Finder 删除需要 Apple Events 授权；没有这条说明系统会直接拒绝且不弹框。 -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>需要访问 Finder 以把微信文件移入废纸篓，这样你可以在废纸篓里「放回原处」恢复。</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 </dict>

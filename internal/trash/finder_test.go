@@ -1,13 +1,6 @@
 package trash
 
-import (
-	"os"
-	"path/filepath"
-	"testing"
-	"time"
-
-	"github.com/kennethfan/wechat-file-keeper/internal/model"
-)
+import "testing"
 
 func TestMethod_Constants(t *testing.T) {
 	if MethodRename != "rename" {
@@ -38,43 +31,5 @@ func TestFindTrashPath_FindsExactName(t *testing.T) {
 	// 这里只验证「文件不存在时报错」这一分支。
 	if _, err := FindTrashPath("/not/exist/definitely-missing-file.pdf"); err == nil {
 		t.Fatal("找不到文件时应报错")
-	}
-}
-
-func TestCleaner_FinderFallsBackToRename(t *testing.T) {
-	// Finder 不可用时（如无授权）应回退到 rename，而不是让清理整体失败。
-	base := t.TempDir()
-	src := filepath.Join(base, "msg")
-	trashDir := filepath.Join(base, ".Trash")
-	manifestDir := filepath.Join(base, "manifests")
-	for _, d := range []string{src, trashDir, manifestDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatalf("创建目录失败: %v", err)
-		}
-	}
-
-	target := filepath.Join(src, "a.pdf")
-	if err := os.WriteFile(target, []byte("pdf"), 0o644); err != nil {
-		t.Fatalf("写文件失败: %v", err)
-	}
-
-	c := &Cleaner{
-		TrashDir:    trashDir,
-		ManifestDir: manifestDir,
-		Method:      MethodFinder,
-		Now:         func() time.Time { return time.Unix(1700000000, 0) },
-	}
-
-	m, err := c.Move([]model.Entry{{Path: target, Size: 3}})
-	// 无论 Finder 成功与否，都不应整体失败
-	if err != nil {
-		t.Fatalf("Finder 模式下不应整体失败: %v", err)
-	}
-	if len(m.Records) != 1 {
-		t.Fatalf("应有 1 条记录，实际 %d 条", len(m.Records))
-	}
-	// 文件必须离开原位置
-	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
-		t.Fatal("文件应已移走")
 	}
 }

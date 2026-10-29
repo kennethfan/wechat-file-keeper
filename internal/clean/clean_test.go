@@ -33,11 +33,8 @@ func newEnv(t *testing.T) env {
 			t.Fatalf("创建目录失败: %v", err)
 		}
 	}
-	e.cleaner = &trash.Cleaner{
-		TrashDir:    e.trashDir,
-		ManifestDir: e.manifestDir,
-		Now:         func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) },
-	}
+	e.cleaner = trash.NewForTest(e.trashDir, e.manifestDir,
+		func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) })
 	return e
 }
 

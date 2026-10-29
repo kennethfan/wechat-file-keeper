@@ -48,12 +48,9 @@ func TestRoundTrip_CleanThenUndoRestoresFiles(t *testing.T) {
 		{Path: docPath, Size: 20, Category: model.CategoryDocument},
 	}
 
-	cleaner := &trash.Cleaner{
-		TrashDir:    trashDir,
-		ManifestDir: manifestDir,
-		Library:     filepath.Join(base, "wxid_e2e"),
-		Now:         func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) },
-	}
+	cleaner := trash.NewForTest(trashDir, manifestDir,
+		func() time.Time { return time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC) })
+	cleaner.Library = filepath.Join(base, "wxid_e2e")
 
 	// 第一步：清理。
 	plan := clean.Build(clean.Options{Entries: entries, MsgRoot: msgRoot})
@@ -126,11 +123,7 @@ func TestRoundTrip_TwoCleanRoundsUndoOneByOne(t *testing.T) {
 	}
 
 	clock := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
-	cleaner := &trash.Cleaner{
-		TrashDir:    trashDir,
-		ManifestDir: manifestDir,
-		Now:         func() time.Time { return clock },
-	}
+	cleaner := trash.NewForTest(trashDir, manifestDir, func() time.Time { return clock })
 
 	// 两轮清理，时间不同以产生两份清单。
 	paths := make([]string, 0, 2)
