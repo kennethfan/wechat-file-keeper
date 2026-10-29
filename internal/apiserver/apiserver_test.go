@@ -3,11 +3,46 @@ package apiserver
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kennethfan/wechat-file-keeper/internal/bridge"
 )
+
+// fakeLibrary 造一个迷你微信账号库，供测试使用。
+//
+// 不读本机真实数据：CI 上没有微信目录，依赖真实数据会让测试必然失败。
+// 结构参照微信 4.x：msg/file、msg/video、msg/attach。
+func fakeLibrary(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	lib := filepath.Join(root, "wxid_test")
+
+	write := func(rel, content string) {
+		p := filepath.Join(lib, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("创建目录失败: %v", err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("写文件失败: %v", err)
+		}
+	}
+
+	write("msg/file/2025-02/简历.pdf", "pdf-bytes")
+	write("msg/file/2025-03/合同.pdf", "pdf-bytes-2")
+	write("msg/video/2025-04/abc.mp4", "video-bytes")
+	write("msg/video/2025-04/gone_thumb.jpg", "orphan-thumb")
+
+	return lib
+}
+
+// newFakeHandler 构造一个基于假账号库的 handler。
+func newFakeHandler(t *testing.T) *Handler {
+	t.Helper()
+	return New(staticStub(), bridge.New())
+}
 
 // staticStub 是静态资源的桩，用来确认 /api/ 之外仍然走静态 handler。
 func staticStub() http.Handler {
@@ -70,7 +105,9 @@ func TestServeHTTP_UnknownAction(t *testing.T) {
 func TestServeHTTP_ScanReturnsJSON(t *testing.T) {
 	h := New(staticStub(), bridge.New())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(`{"libPath":""}`))
+	lib := fakeLibrary(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/scan",
+		strings.NewReader(`{"libPath":"`+lib+`"}`))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -89,6 +126,12 @@ func TestServeHTTP_ScanReturnsJSON(t *testing.T) {
 
 func TestServeHTTP_EntriesPagination(t *testing.T) {
 	h := New(staticStub(), bridge.New())
+	lib := fakeLibrary(t)
+
+	// 先体检一次，让服务端有缓存供分页查询
+	scanReq := httptest.NewRequest(http.MethodPost, "/api/scan",
+		strings.NewReader(`{"libPath":"`+lib+`"}`))
+	h.ServeHTTP(httptest.NewRecorder(), scanReq)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/entries",
 		strings.NewReader(`{"limit":5,"offset":0,"sortBy":"size","descending":true}`))
@@ -112,12 +155,14 @@ func TestScan_DoesNotReturnAllEntries(t *testing.T) {
 	// 体检结果不应携带全量条目——那是卡顿主因。
 	h := New(staticStub(), bridge.New())
 
-	req := httptest.NewRequest(http.MethodPost, "/api/scan", strings.NewReader(`{}`))
+	lib := fakeLibrary(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/scan",
+		strings.NewReader(`{"libPath":"`+lib+`"}`))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("体检应成功，实际 %d", rec.Code)
+		t.Fatalf("体检应成功，实际 %d: %s", rec.Code, rec.Body.String())
 	}
 	// 7.6MB 是全量；这里应远小于它
 	if rec.Body.Len() > 500*1024 {
