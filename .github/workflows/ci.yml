@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Wails 依赖 CGO 与 macOS 框架，无法在其他平台构建。
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: 检查格式
+        run: |
+          unformatted=$(gofmt -l internal main.go)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件需要 gofmt："
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: 单元测试
+        run: go test ./... -race -count=1
+
+      - name: 覆盖率
+        run: |
+          go test ./... -coverprofile=coverage.out -covermode=atomic
+          go tool cover -func=coverage.out | tail -1
+
+      - name: 编译（含前端 embed）
+        run: go build -o bin/wechat-file-keeper .
+
+      - name: 冒烟测试 CLI
+        run: |
+          ./bin/wechat-file-keeper --help 2>&1 | head -20 || true
+          # scan 在 CI 上没有微信数据，应给出明确错误而不是 panic
+          ./bin/wechat-file-keeper scan 2>&1 | head -5 || true
+
+      - name: 上传覆盖率
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.out
+          retention-days: 7

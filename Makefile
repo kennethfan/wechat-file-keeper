@@ -36,7 +36,9 @@ app: build icon
 	@cp $(BUILD)/$(BINARY) "$(APP)/Contents/MacOS/$(BINARY)"
 	@cp packaging/Info.plist "$(APP)/Contents/Info.plist"
 	@cp packaging/AppIcon.icns "$(APP)/Contents/Resources/AppIcon.icns"
-	@sed -i '' 's|<string>0\.1\.0</string>|<string>$(VERSION)</string>|g' "$(APP)/Contents/Info.plist"
+	@# 用 PlistBuddy 精确设置版本，避免 sed 依赖某个硬编码的旧值
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $(VERSION)" "$(APP)/Contents/Info.plist"
+	@/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(VERSION)" "$(APP)/Contents/Info.plist"
 	@if [ -n "$(SIGN_IDENTITY)" ]; then \
 		codesign --force --deep --options runtime \
 			--sign "$(SIGN_IDENTITY)" "$(APP)"; \

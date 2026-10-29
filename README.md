@@ -1,5 +1,8 @@
 # 微信文件管家 WeClean
 
+[![CI](https://github.com/kennethfan/wechat-file-keeper/actions/workflows/ci.yml/badge.svg)](https://github.com/kennethfan/wechat-file-keeper/actions/workflows/ci.yml)
+[![Release](https://github.com/kennethfan/wechat-file-keeper/actions/workflows/release.yml/badge.svg)](https://github.com/kennethfan/wechat-file-keeper/actions/workflows/release.yml)
+
 macOS 微信本地文件清理工具：只读扫描微信留下的聊天文件、视频与图片缓存，按空间占用呈现，用户确认后把选中项通过 Finder 移入系统废纸篓。
 
 界面用 **Wails v3 + WebView** 实现，视觉对齐 macOS 原生风（微信绿主色、毛玻璃、卡片与月份桶）。
@@ -113,6 +116,22 @@ make app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"   # 正式
 ```
 
 图标按 Apple HIG 绘制：1024 画布上圆角方块主体 824×824 居中，四边各留 100px 透明边距。源图由 `packaging/make_icon_source.py` 生成，再经 `packaging/make_icon.py` 打包成 `.icns`。
+
+## 发版
+
+推送 `v*` tag 会自动触发 Release workflow，在 macOS runner 上打包、校验并发布：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+产物：`wechat-file-keeper-0.1.0.zip`（内含 `.app`）与 `checksums.txt`。
+workflow 会校验 `codesign`、`NSAppleEventsUsageDescription` 与版本号，
+缺任何一项都会失败——避免发出版本号不对或缺权限说明的包。
+
+版本号由 tag 决定（`v0.1.0` → `0.1.0`），写入 `Info.plist` 的
+`CFBundleShortVersionString` 与 `CFBundleVersion`。
 
 ## 开发文档
 

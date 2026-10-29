@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（如 0.1.0），留空则用 tag 名去掉 v'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: 解析版本号
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # tag 形如 v0.1.0 → 0.1.0
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 测试
+        run: go test ./... -count=1
+
+      - name: 安装图标工具依赖
+        run: python3 -m pip install --quiet Pillow
+
+      - name: 打包 .app
+        run: make app VERSION=${{ steps.ver.outputs.version }}
+
+      - name: 校验产物
+        run: |
+          test -d "dist/微信文件管家.app" || { echo "未生成 .app"; exit 1; }
+          codesign -v "dist/微信文件管家.app"
+          # 权限说明必须在 Info.plist 里，否则 Finder 删除会失败
+          /usr/libexec/PlistBuddy -c 'Print :NSAppleEventsUsageDescription' \
+            "dist/微信文件管家.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            "dist/微信文件管家.app/Contents/Info.plist"
+
+      - name: 压缩
+        run: |
+          cd dist
+          # ditto 保留资源分支与扩展属性，比 zip 更适合分发 .app
+          ditto -c -k --sequesterRsrc --keepParent "微信文件管家.app" \
+            "wechat-file-keeper-${{ steps.ver.outputs.version }}.zip"
+          shasum -a 256 "wechat-file-keeper-${{ steps.ver.outputs.version }}.zip" \
+            > checksums.txt
+          cat checksums.txt
+
+      - name: 发布
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.ver.outputs.version }}
+          files: |
+            dist/wechat-file-keeper-${{ steps.ver.outputs.version }}.zip
+            dist/checksums.txt
+          body: |
+            ## 微信文件管家 v${{ steps.ver.outputs.version }}
+
+            下载 `wechat-file-keeper-${{ steps.ver.outputs.version }}.zip`，解压后双击 `.app`。
+
+            **首次运行说明**
+            - 未签名版本会被 Gatekeeper 拦截：右键点击 `.app` → 打开 → 再点「打开」
+            - 首次清理会请求「控制 Finder」授权，选「好」后废纸篓里才有「放回原处」
+
+            校验：`shasum -a 256 -c checksums.txt`
+          draft: false
+          prerelease: false
