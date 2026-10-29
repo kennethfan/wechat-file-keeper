@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>微清 WeClean — Mac 微信文件清理工具 UI 原型（基于微信 4.x 真实存储结构）</title>
+<style>
+/* ============ Design Tokens（净盘产品家族 · 浅色 macOS 风 · 微信绿） ============ */
+:root{
+  --bg-window:#f5f5f7; --bg-sidebar:rgba(242,242,247,.96); --bg-card:#ffffff;
+  --bg-hover:rgba(0,0,0,.035); --bg-active:rgba(7,193,96,.10);
+  --line:rgba(0,0,0,.08); --line-strong:rgba(0,0,0,.14);
+  --fg:#1d1d1f; --fg-2:#6e6e73; --fg-3:#aeaeb2;
+  --accent:#07c160; --accent-deep:#06ad56; --wxb:#576b95;
+  --ok:#34c759; --warn:#ff9f0a; --bad:#ff3b30;
+  --shadow-card:0 1px 3px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.05);
+  --shadow-pop:0 10px 40px rgba(0,0,0,.18);
+  --r-card:12px; --r-btn:8px; --tr:180ms cubic-bezier(.3,.7,.4,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#e2e3e8;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+  color:var(--fg);font-size:14px;line-height:1.55;display:flex;align-items:center;justify-content:center;
+  padding:28px 16px;-webkit-font-smoothing:antialiased}
+button{font:inherit;border:0;background:none;cursor:pointer;color:inherit}
+input{font:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+code{background:#f0f0f3;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:11.5px;color:#3a6b4f;font-family:"SF Mono",Menlo,Consolas,monospace;word-break:break-all}
+
+.mac-window{width:min(1120px,100%);height:min(740px,calc(100vh - 56px));min-height:560px;
+  background:var(--bg-window);border-radius:12px;box-shadow:0 24px 80px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.10);
+  display:flex;flex-direction:column;overflow:hidden}
+.titlebar{height:44px;flex:0 0 44px;display:flex;align-items:center;gap:10px;padding:0 14px;
+  background:rgba(246,246,248,.9);border-bottom:1px solid var(--line);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);user-select:none}
+.lights{display:flex;gap:8px}
+.light{width:12px;height:12px;border-radius:50%}
+.light.r{background:#ff5f57}.light.y{background:#febc2e}.light.g{background:#28c840}
+.tb-title{flex:1;text-align:center;font-size:13px;font-weight:600;color:var(--fg-2);margin-right:56px}
+.tb-badge{font-size:11px;font-weight:600;color:var(--fg-2);background:rgba(0,0,0,.05);border-radius:6px;padding:2px 8px}
+
+.app{flex:1;display:flex;min-height:0}
+.sidebar{width:242px;flex:0 0 242px;background:var(--bg-sidebar);border-right:1px solid var(--line);
+  padding:14px 10px 12px;display:flex;flex-direction:column;gap:4px;overflow-y:auto}
+.wx-chip{display:flex;align-items:center;gap:10px;background:var(--bg-card);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.wx-avatar{width:38px;height:38px;border-radius:9px;flex:0 0 38px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#07c160,#2aae67);color:#fff;font-size:19px;font-weight:700}
+.wx-chip b{font-size:13px;display:block}
+.wx-chip span{font-size:11px;color:var(--fg-2);word-break:break-all}
+.nav-label{font-size:11px;font-weight:600;color:var(--fg-3);padding:10px 10px 4px;letter-spacing:.4px}
+.nav-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;border-radius:8px;
+  font-size:13.5px;font-weight:500;color:var(--fg);transition:background var(--tr);text-align:left}
+.nav-item .ico{width:20px;text-align:center;font-size:15px}
+.nav-item:hover{background:var(--bg-hover)}
+.nav-item.active{background:var(--bg-active);color:var(--accent-deep);font-weight:600}
+.nav-item .cnt{margin-left:auto;font-size:11px;font-weight:600;color:var(--fg-2);background:rgba(0,0,0,.06);border-radius:10px;padding:1px 7px}
+.sidebar-foot{margin-top:auto;font-size:11px;color:var(--fg-3);line-height:1.6;padding:10px 10px 0;border-top:1px solid var(--line)}
+.sidebar-foot .safe{color:var(--accent-deep);font-weight:600}
+.sidebar-foot .no{color:var(--bad);font-weight:700}
+
+main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.main-head{display:flex;align-items:center;gap:12px;padding:16px 22px 10px}
+.main-head h1{font-size:19px;font-weight:700}
+.main-head .sub{font-size:12.5px;color:var(--fg-2)}
+.head-spacer{flex:1}
+.main-body{flex:1;overflow-y:auto;padding:6px 22px 96px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--r-btn);
+  font-size:13px;font-weight:600;transition:all var(--tr);white-space:nowrap}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover:not(:disabled){background:var(--accent-deep);transform:translateY(-1px);box-shadow:0 4px 12px rgba(7,193,96,.35)}
+.btn-ghost{background:rgba(0,0,0,.05);color:var(--fg)}
+.btn-ghost:hover{background:rgba(0,0,0,.09)}
+.btn-danger{background:var(--bad);color:#fff}
+.btn-danger:hover:not(:disabled){background:#e6352a;transform:translateY(-1px);box-shadow:0 4px 12px rgba(255,59,48,.35)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-lg{padding:11px 22px;font-size:14.5px;border-radius:10px}
+.view{display:none}
+.view.show{display:block;animation:fadeIn .28s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.wx-run{display:flex;align-items:center;gap:10px;margin:12px 22px 10px;background:rgba(255,159,10,.12);
+  border:1px solid rgba(255,159,10,.35);border-radius:10px;padding:9px 14px;font-size:12.5px;color:#8a6116}
+.wx-run .dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex:0 0 8px;animation:pulse 1.6s ease infinite}
+@keyframes pulse{50%{opacity:.35}}
+.wx-run .sp{flex:1}
+.wx-run button{font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px}
+.wx-run .b1{background:#fff;color:#8a6116;border:1px solid rgba(255,159,10,.4)}
+.wx-run .b2{background:rgba(0,0,0,.05)}
+.wx-run.dim{opacity:.75}
+.wx-run.dim .dot{animation:none;background:var(--ok)}
+
+.hero{display:flex;gap:26px;align-items:center;flex-wrap:wrap;background:var(--bg-card);
+  border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-card);padding:26px 28px;margin-bottom:14px}
+.ring-wrap{position:relative;width:170px;height:170px;flex:0 0 170px}
+.ring{width:100%;height:100%;border-radius:50%;-webkit-mask:radial-gradient(circle,transparent 62%,#000 63%);
+  mask:radial-gradient(circle,transparent 62%,#000 63%)}
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+.ring-center .big{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.4px}
+.ring-center .cap{font-size:12px;color:var(--fg-2)}
+.hero-info{flex:1;min-width:280px}
+.hero-info h2{font-size:16px}
+.hero-info .dim{font-size:12px;color:var(--fg-2);margin-bottom:14px}
+.dir-bars{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;margin-top:6px}
+.dir-bar .row{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:3px;gap:8px}
+.dir-bar .row .p{color:var(--fg-2);font-size:11px;font-family:"SF Mono",Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.dir-bar .row b{font-variant-numeric:tabular-nums;font-weight:600;flex:0 0 auto}
+.dir-bar .track{height:6px;border-radius:3px;background:#e8e8ed;overflow:hidden}
+.dir-bar .fill{height:100%;border-radius:3px;transition:width .5s ease}
+.dir-bar.no .row b{color:var(--bad)}
+.scan-cta{margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.scan-note{font-size:12px;color:var(--fg-2);display:flex;align-items:center;gap:5px}
+.scan-note .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+
+.top-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:16px}
+.tile{background:var(--bg-card);border:1px solid var(--line);border-radius:var(--r-card);padding:13px 15px;
+  box-shadow:var(--shadow-card);cursor:pointer;transition:transform var(--tr),box-shadow var(--tr)}
+.tile:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.09)}
+.tile .t{display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px}
+.tile .sw{width:26px;height:26px;border-radius:8px;flex:0 0 26px;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff}
+.tile .v{font-size:19px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
+.tile .n{font-size:11.5px;color:var(--fg-2)}
+
+.scan-panel{background:var(--bg-card);border:1px solid var(--line);border-radius:var(--r-card);
+  box-shadow:var(--shadow-card);padding:52px 30px;display:flex;flex-direction:column;align-items:center;gap:18px}
+.scan-ring{width:92px;height:92px;border-radius:50%;background:conic-gradient(var(--accent) 0 var(--p,0%),#e8e8ed var(--p,0%) 100%);
+  -webkit-mask:radial-gradient(circle,transparent 58%,#000 59%);mask:radial-gradient(circle,transparent 58%,#000 59%)}
+.scan-path{font-size:12.5px;color:var(--fg-2);font-family:"SF Mono",Menlo,monospace;max-width:560px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scan-stat{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.scan-hint{font-size:12px;color:var(--fg-3);text-align:center}
+
+.toolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.seg{display:inline-flex;background:rgba(0,0,0,.05);border-radius:9px;padding:3px;gap:2px}
+.seg-btn{padding:5px 12px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--fg-2);transition:all var(--tr)}
+.seg-btn.active{background:#fff;color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.toolbar .hint{font-size:12px;color:var(--fg-2)}
+.sel{padding:5px 8px;border:1px solid var(--line-strong);border-radius:8px;font-size:12px;background:#fff;color:var(--fg)}
+.switch-row{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--fg-2);cursor:pointer;user-select:none}
+.switch{width:40px;height:24px;border-radius:12px;background:#e9e9ea;position:relative;transition:background var(--tr);flex:0 0 40px}
+.switch .knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform var(--tr)}
+.switch.on{background:var(--accent)}
+.switch.on .knob{transform:translateX(16px)}
+.l-check{width:18px;height:18px;border-radius:5px;border:1.5px solid #c7c7cc;display:inline-flex;align-items:center;justify-content:center;color:#fff;transition:all var(--tr);cursor:pointer;flex:0 0 18px}
+.l-check.checked{background:var(--accent);border-color:var(--accent)}
+.l-name{font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l-from{font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.l-size{font-weight:600;font-size:13px;font-variant-numeric:tabular-nums;flex:0 0 76px;text-align:right}
+.flat-row{display:flex;align-items:center;gap:12px;padding:9px 18px;border-bottom:1px solid rgba(0,0,0,.04);transition:background var(--tr);cursor:pointer}
+.flat-row:hover{background:rgba(0,0,0,.02)}
+.mtag{font-size:10px;font-weight:700;color:var(--wxb);background:rgba(87,107,149,.12);border-radius:5px;padding:1px 6px;flex:0 0 auto}
+.flat-wrap{background:var(--bg-card);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-card);overflow:hidden}
+.caveat{display:flex;gap:10px;align-items:flex-start;background:rgba(87,107,149,.08);border:1px solid rgba(87,107,149,.25);
+  border-radius:10px;padding:10px 14px;font-size:12px;color:#3d4a6b;margin-bottom:12px}
+
+.grp-card{background:var(--bg-card);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-card);margin-bottom:12px;overflow:hidden}
+.grp-head{display:flex;align-items:center;gap:12px;padding:13px 18px;cursor:pointer;transition:background var(--tr)}
+.grp-head:hover{background:var(--bg-hover)}
+.grp-meta{flex:1;min-width:0}
+.grp-meta .name{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;flex-wrap:wrap}
+.grp-meta .desc{font-size:11.5px;color:var(--fg-2)}
+.grp-nums{text-align:right;flex:0 0 auto;line-height:1.4}
+.grp-nums .v{font-size:15px;font-weight:700;color:var(--accent-deep);font-variant-numeric:tabular-nums}
+.grp-nums .c{font-size:11px;color:var(--fg-3)}
+.chev{color:var(--fg-3);transition:transform var(--tr);flex:0 0 auto}
+.grp-card.open .chev{transform:rotate(90deg)}
+.grp-body{display:none;border-top:1px solid var(--line);background:#fafafc}
+.grp-card.open .grp-body{display:block}
+.grp-card.protected{opacity:.85}
+.grp-card.protected .grp-head{background:rgba(255,159,0,.05)}
+
+.file-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;padding:4px 18px 16px}
+.file-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px;
+  transition:all var(--tr);position:relative;cursor:pointer}
+.file-card:hover{border-color:rgba(7,193,96,.5);box-shadow:0 3px 10px rgba(0,0,0,.07)}
+.file-card.selected{border-color:var(--accent);background:rgba(7,193,96,.06)}
+.file-card.locked{opacity:.55;pointer-events:none}
+.file-card.cleaned{opacity:.35;pointer-events:none}
+.thumb{height:64px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:24px;position:relative;overflow:hidden}
+.lock-badge,.orphan-badge{position:absolute;top:6px;font-size:10px;font-weight:700;color:#fff;border-radius:5px;padding:1px 6px}
+.lock-badge{right:6px;background:rgba(0,0,0,.45)}
+.orphan-badge{right:6px;background:rgba(255,159,10,.9)}
+.fc-check{position:absolute;top:6px;left:6px;width:18px;height:18px;border-radius:50%;border:1.5px solid rgba(255,255,255,.85);
+  background:rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;transition:all var(--tr)}
+.file-card.selected .fc-check{background:var(--accent);border-color:var(--accent)}
+.fc-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
+.fc-name bdi{direction:ltr;unicode-bidi:isolate}
+.fc-meta{display:flex;justify-content:space-between;font-size:11px;color:var(--fg-3)}
+.fc-meta b{color:var(--fg-2);font-variant-numeric:tabular-nums;font-weight:600}
+.sess-tools{display:flex;align-items:center;gap:10px;padding:10px 18px;flex-wrap:wrap}
+.type-tabs{display:inline-flex;background:rgba(0,0,0,.05);border-radius:9px;padding:3px;gap:2px}
+.type-tab{padding:4px 11px;border-radius:7px;font-size:12px;font-weight:600;color:var(--fg-2)}
+.type-tab.active{background:#fff;color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.star{font-size:16px;color:#d1d1d6;transition:all var(--tr);padding:2px 4px}
+.star.on{color:var(--warn)}
+.pick-mini{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-2);margin-left:auto;cursor:pointer}
+
+.action-bar{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:14px;padding:12px 22px;
+  background:rgba(255,255,255,.85);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);
+  border-top:1px solid var(--line);transform:translateY(100%);transition:transform var(--tr);z-index:5}
+.action-bar.show{transform:none}
+.action-bar .sum b{font-size:15px}
+.action-bar .sum span{color:var(--fg-2);font-size:12.5px;display:block}
+
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.32);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+.overlay.show{display:flex;animation:fadeIn .18s ease}
+.modal{width:min(480px,100%);background:#fff;border-radius:14px;box-shadow:var(--shadow-pop);overflow:hidden;
+  animation:pop .22s cubic-bezier(.3,1.4,.5,1)}
+@keyframes pop{from{transform:scale(.94);opacity:0}to{transform:scale(1);opacity:1}}
+.modal-head{padding:20px 22px 0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px}
+.warn-ico{width:44px;height:44px;border-radius:50%;background:rgba(255,159,10,.14);display:flex;align-items:center;justify-content:center;font-size:22px}
+.modal-head h3{font-size:16px}
+.modal-head p{font-size:12.5px;color:var(--fg-2)}
+.modal-list{margin:16px 22px;background:#f7f7f9;border:1px solid var(--line);border-radius:10px;padding:10px 14px;max-height:160px;overflow-y:auto}
+.ml-row{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;gap:12px}
+.ml-row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ml-row span:last-child{font-weight:600;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.trash-note{display:flex;align-items:center;gap:7px;justify-content:center;font-size:11.5px;color:var(--accent-deep);font-weight:600;margin:0 22px 16px}
+.modal-foot{display:flex;border-top:1px solid var(--line)}
+.modal-foot button{flex:1;padding:13px;font-size:14px;font-weight:600;transition:background var(--tr)}
+.modal-foot button+button{border-left:1px solid var(--line)}
+.mf-cancel:hover{background:var(--bg-hover)}
+.mf-confirm{color:var(--bad)}
+.mf-confirm:hover{background:rgba(255,59,48,.06)}
+
+.clean-panel{padding:46px 30px;display:flex;flex-direction:column;align-items:center;gap:16px}
+.clean-panel h2{font-size:18px}
+.clean-track{width:min(420px,100%);height:8px;border-radius:4px;background:#e8e8ed;overflow:hidden}
+.clean-fill{height:100%;background:linear-gradient(90deg,var(--accent),#7ee0a8);width:0%;transition:width .25s ease;border-radius:4px}
+.clean-list{width:min(460px,100%);max-height:170px;overflow-y:auto;background:#f7f7f9;border:1px solid var(--line);border-radius:10px;padding:8px 14px}
+.cl-row{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;color:var(--fg-3)}
+.cl-row.done{color:var(--fg)}
+.cl-row .tick{color:var(--ok);opacity:0;transition:opacity var(--tr)}
+.cl-row.done .tick{opacity:1}
+.done-ico{width:64px;height:64px;border-radius:50%;background:rgba(52,199,89,.14);display:flex;align-items:center;justify-content:center;font-size:30px;animation:pop .35s cubic-bezier(.3,1.5,.5,1)}
+.done-big{font-size:34px;font-weight:800;color:var(--ok);font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+.done-actions{display:flex;gap:10px;margin-top:6px}
+.hint-line{font-size:12px;color:var(--fg-2);text-align:center;max-width:420px}
+
+.prot-card{background:var(--bg-card);border:1px solid var(--line);border-radius:var(--r-card);box-shadow:var(--shadow-card);overflow:hidden}
+.prot-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid rgba(0,0,0,.05)}
+.prot-row:last-child{border-bottom:0}
+.prot-note{font-size:12px;color:var(--fg-2);line-height:1.7;padding:14px 16px}
+.avt{width:30px;height:30px;border-radius:8px;flex:0 0 30px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700}
+.toast{position:fixed;top:22px;left:50%;transform:translate(-50%,-70px);background:rgba(29,29,31,.92);color:#fff;
+  font-size:13px;font-weight:500;padding:9px 18px;border-radius:99px;box-shadow:var(--shadow-pop);
+  transition:transform .3s cubic-bezier(.3,1.2,.5,1);z-index:80;display:flex;align-items:center;gap:8px}
+.toast.show{transform:translate(-50%,0)}
+.toast .ok{color:var(--ok)}
+@media (max-width:760px){.sidebar{display:none}.mac-window{height:calc(100vh - 40px)}}
+</style>
+</head>
+<body>
+
+<div class="mac-window">
+  <div class="titlebar">
+    <div class="lights"><span class="light r"></span><span class="light y"></span><span class="light g"></span></div>
+    <div class="tb-title">微清 WeClean — 微信 4.x 文件清理</div>
+    <span class="tb-badge">原型 v2.0 · 真实存储结构</span>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="wx-chip">
+        <div class="wx-avatar">W</div>
+        <div><b>微信 4.x 数据</b><span id="chipTotal">xwechat_files/wxid_8593…</span></div>
+      </div>
+      <div class="nav-label">清理</div>
+      <button class="nav-item active" data-view="overview"><span class="ico">🩺</span>数据体检</button>
+      <button class="nav-item" data-view="months"><span class="ico">📅</span>按月份清理<span class="cnt" id="navCntM" hidden>0</span></button>
+      <button class="nav-item" data-view="orphans"><span class="ico">🧩</span>孤儿与缓存<span class="cnt" id="navCntO" hidden>0</span></button>
+      <div class="nav-label">进阶</div>
+      <button class="nav-item" data-view="sessions"><span class="ico">💬</span>按会话（图片）<span class="cnt" id="navCntS" hidden>0</span></button>
+      <div class="nav-label">安全</div>
+      <button class="nav-item" data-view="protect"><span class="ico">🛡</span>保护名单<span class="cnt" id="navCntP" hidden>0</span></button>
+      <div class="sidebar-foot">
+        <span class="safe">✔ 只读体检</span> — 分析不改动任何文件<br>
+        <span class="safe">✔ 不碰聊天记录</span> — db_storage 数据库只读、绝不清理<br>
+        <span class="safe">✔ 废纸篓机制</span> — 移入废纸篓可随时恢复<br>
+        <span class="no">⛔ db_storage 禁止触碰</span>
+      </div>
+    </aside>
+
+    <main>
+      <div class="wx-run" id="wxRun" style="margin-top:12px">
+        <span class="dot"></span>
+        <span>检测到<b>微信正在运行</b>，部分媒体文件可能被占用。建议先退出微信再清理。</span>
+        <span class="sp"></span>
+        <button class="b1" id="btnQuitWx">已退出微信</button>
+        <button class="b2" id="btnKeepRun">继续清理缓存（安全）</button>
+      </div>
+
+      <div class="main-head">
+        <div><h1 id="viewTitle">微信数据体检</h1><div class="sub" id="viewSub">上次体检：从未</div></div>
+        <div class="head-spacer"></div>
+        <button class="btn btn-ghost" id="btnRescan" hidden>🔄 重新体检</button>
+      </div>
+
+      <div class="main-body">
+
+        <!-- 概览 -->
+        <section class="view show" id="view-overview">
+          <div class="hero">
+            <div class="ring-wrap">
+              <div class="ring" id="bigRing" style="background:conic-gradient(#c7c7cc 0 100%)"></div>
+              <div class="ring-center"><div class="big" id="ringBig">—</div><div class="cap">微信媒体占用</div></div>
+            </div>
+            <div class="hero-info">
+              <h2>存储结构分析（微信 4.x 实测）</h2>
+              <div class="dim">路径：<code>~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/&lt;wxid&gt;/</code></div>
+              <div class="dir-bars" id="dirBars"></div>
+              <div class="scan-cta">
+                <button class="btn btn-primary btn-lg" id="btnScan">✨ 开始体检</button>
+                <span class="scan-note"><span class="dot"></span>只读分析 · 不改动任何文件 · 约 3 秒</span>
+              </div>
+            </div>
+          </div>
+          <div class="top-grid" id="topTiles"></div>
+        </section>
+
+        <!-- 扫描中 -->
+        <section class="view" id="view-scanning">
+          <div class="scan-panel">
+            <div class="scan-ring" id="scanRing"></div>
+            <div class="scan-stat" id="scanStat">0%</div>
+            <div class="scan-path" id="scanPath">xwechat_files/wxid_…/msg/video/…</div>
+            <div class="scan-hint">只读分析 msg/attach · msg/video · msg/file 与缓存目录<br>db_storage 聊天记录数据库不在扫描范围内</div>
+            <button class="btn btn-ghost" id="btnCancelScan">取消</button>
+          </div>
+        </section>
+
+        <!-- 按月份清理（主轴） -->
+        <section class="view" id="view-months">
+          <div class="toolbar">
+            <div class="seg" role="group" aria-label="类型筛选">
+              <button class="seg-btn active" data-type="all">全部</button>
+              <button class="seg-btn" data-type="attach">🖼 图片</button>
+              <button class="seg-btn" data-type="video">🎬 视频</button>
+              <button class="seg-btn" data-type="file">📄 文件</button>
+            </div>
+            <div class="seg" role="group" aria-label="大小筛选">
+              <button class="seg-btn active" data-min="0">全部大小</button>
+              <button class="seg-btn" data-min="10">≥10MB</button>
+              <button class="seg-btn" data-min="100">≥100MB</button>
+            </div>
+            <label class="switch-row" id="swRow" title="开启：按月份桶分组；关闭：跨月份平铺列表">
+              <span id="swLabel">按月份分组</span>
+              <span class="switch on" id="swGroup" role="switch" aria-checked="true" aria-label="按月份分组" tabindex="0"><span class="knob"></span></span>
+            </label>
+            <select class="sel" id="selMSort" aria-label="月份排序">
+              <option value="timeDesc">月份：新 → 旧</option>
+              <option value="timeAsc">月份：旧 → 新</option>
+              <option value="sizeDesc">月份：占用 大 → 小</option>
+            </select>
+            <select class="sel" id="selFSort" aria-label="文件排序">
+              <option value="sizeDesc">文件：大小 大 → 小</option>
+              <option value="sizeAsc">文件：大小 小 → 大</option>
+              <option value="timeDesc">文件：时间 新 → 旧</option>
+              <option value="timeAsc">文件：时间 旧 → 新</option>
+              <option value="name">文件：名称 A → Z</option>
+            </select>
+            <button class="btn btn-ghost" id="btnPickFlat" hidden>☑ 选本页可清理项</button>
+          </div>
+          <div class="toolbar">
+            <div class="seg" role="group" aria-label="时间阈值">
+              <button class="seg-btn" data-age="30">30 天前</button>
+              <button class="seg-btn" data-age="90">90 天前</button>
+              <button class="seg-btn active" data-age="180">180 天前</button>
+              <button class="seg-btn" data-age="0">全部</button>
+            </div>
+            <span class="hint" id="ageHint">仅清理 <b>180 天前</b> 的文件，近期文件已自动上锁保护</span>
+          </div>
+          <div id="monthList"></div>
+          <div class="action-bar" id="barM">
+            <div class="sum"><b id="sumM">0 MB</b><span id="sumCntM">已选 0 个文件</span></div>
+            <div style="flex:1"></div>
+            <button class="btn btn-ghost" id="btnClearM">取消选择</button>
+            <button class="btn btn-danger" id="btnCleanM" disabled>🗑 安全清理</button>
+          </div>
+        </section>
+
+        <!-- 孤儿与缓存 -->
+        <section class="view" id="view-orphans">
+          <div class="caveat">🧩 <span><b>孤儿文件</b> = 无法再被微信引用的残留（如只有缩略图没有视频本体、聊天删除后遗留的哈希目录）。清理它们<b>零风险</b>；<b>缓存</b>清理后微信会在需要时重新下载。</span></div>
+          <div id="orphanList"></div>
+          <div class="action-bar" id="barO">
+            <div class="sum"><b id="sumO">0 MB</b><span id="sumCntO">已选 0 项</span></div>
+            <div style="flex:1"></div>
+            <button class="btn btn-danger" id="btnCleanO" disabled>🗑 移入废纸篓</button>
+          </div>
+        </section>
+
+        <!-- 按会话（进阶） -->
+        <section class="view" id="view-sessions">
+          <div class="caveat">⚠️ <span><b>进阶能力。</b>微信 4.x 中仅 <code>msg/attach</code> 图片按会话哈希组织，可直接定位；视频/文件是全局按月池，归属会话需<b>只读查询微信数据库</b>（结构未公开、涉隐私）。本视图仅覆盖图片类；「未识别哈希」目录需数据库映射后才能显示会话名。</span></div>
+          <div id="sessList"></div>
+          <div class="action-bar" id="barS">
+            <div class="sum"><b id="sumS">0 MB</b><span id="sumCntS">已选 0 个文件</span></div>
+            <div style="flex:1"></div>
+            <button class="btn btn-ghost" id="btnClearS">取消选择</button>
+            <button class="btn btn-danger" id="btnCleanS" disabled>🗑 安全清理</button>
+          </div>
+        </section>
+
+        <!-- 保护名单 -->
+        <section class="view" id="view-protect">
+          <div class="prot-card">
+            <div class="prot-note">🛡 名单中的会话被<b>完全保护</b>：其图片文件不会出现在清理结果中，也无法被选中。在「按会话（图片）」中点击会话旁的 ☆ 加入或移出。<br>「按月份清理」是全局时间维度，不受会话保护影响——如需保留某月全部文件，请将时间阈值设为对应范围。</div>
+            <div id="protList"></div>
+          </div>
+        </section>
+
+        <!-- 清理进度 -->
+        <section class="view" id="view-cleaning">
+          <div class="clean-panel">
+            <h2>正在安全清理…</h2>
+            <div class="clean-track"><div class="clean-fill" id="cleanFill"></div></div>
+            <div class="clean-list" id="cleanList"></div>
+          </div>
+        </section>
+
+        <!-- 完成 -->
+        <section class="view" id="view-done">
+          <div class="clean-panel">
+            <div class="done-ico">✓</div>
+            <h2>清理完成</h2>
+            <div class="done-big" id="doneBig">+2.1 GB</div>
+            <div class="hint-line">文件已移入<b>废纸篓</b>，聊天记录（db_storage）不受影响。<br>如微信处于运行状态，建议重启微信以释放其内部缓存占用。</div>
+            <div class="done-actions">
+              <button class="btn btn-ghost" id="btnUndo">↩︎ 撤销本次清理</button>
+              <button class="btn btn-primary" id="btnBackOverview">查看体检结果</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 确认弹窗 -->
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="warn-ico">⚠️</div>
+      <h3 id="mTitle">确认清理这些微信文件？</h3>
+      <p id="mSub"></p>
+    </div>
+    <div class="modal-list" id="modalList"></div>
+    <div class="trash-note">🗑 移入废纸篓 · 聊天记录不受影响 · 30 天内可恢复</div>
+    <div class="modal-foot">
+      <button class="mf-cancel" id="mCancel">取消</button>
+      <button class="mf-confirm" id="mConfirm">移入废纸篓</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span class="ok">✓</span><span id="toastMsg"></span></div>
+
+<script>
+/* ================= 数据（基于微信 4.x 实测结构建模） ================= */
+const MB=1048576, GB=1073741824;
+/* 存储目录定义（名称/颜色/实测角色说明） */
+const DIRS={
+  attach:{name:'msg/attach 图片附件',color:'#5ac8fa',desc:'按会话哈希/月份组织'},
+  video:{name:'msg/video 视频',color:'#ff9f0a',desc:'全局按月平铺'},
+  file:{name:'msg/file 文件',color:'#576b95',desc:'全局按月平铺，保留原文件名'},
+  cache:{name:'cache / temp / business',color:'#8e8e93',desc:'杂项缓存，可安全清'},
+};
+/* 会话（attach 归属；mapped=null 表示哈希未识别，需数据库映射） */
+const SESSIONS=[
+  {id:'s1',hash:'02c4ceb886db6bf40cec3e91b676ecca',name:'产品需求讨论群',kind:'群聊',color:'#576b95'},
+  {id:'s2',hash:'0486bd315f1fc9bd4da806166ed8dcd7',name:'设计资源群',kind:'群聊',color:'#af52de'},
+  {id:'s3',hash:'061d80f4da491cef265d0b7d5a608cdf',name:null,kind:'未识别',color:'#8e8e93'},
+  {id:'s4',hash:'05dad69b1047c5066f054a03f4754c3d',name:'张伟（客户）',kind:'联系人',color:'#ff9500'},
+];
+/* 文件池（kind 对应 DIRS 键；video/file 归属会话=null，month 为真实组织键；orphan=孤儿文件） */
+const FILES=[
+ /* attach 2.0G */
+ {n:'2024-08/Img/IMG_2043.jpg',s:420*MB,a:62,kind:'attach',month:'2024-08',sess:'s1'},
+ {n:'2024-08/Img/原型截图-终版.png',s:810*MB,a:62,kind:'attach',month:'2024-08',sess:'s1'},
+ {n:'2024-08/Img/竞品长图.png',s:310*MB,a:61,kind:'attach',month:'2024-08',sess:'s1'},
+ {n:'2024-05/Img/流程图-v3.jpg',s:190*MB,a:153,kind:'attach',month:'2024-05',sess:'s1'},
+ {n:'2024-05/Img/评审白板.jpg',s:190*MB,a:155,kind:'attach',month:'2024-05',sess:'s1'},
+ {n:'2024-07/Img/Banner-双十一.png',s:260*MB,a:92,kind:'attach',month:'2024-07',sess:'s2'},
+ {n:'2024-07/Img/组件库预览.png',s:150*MB,a:94,kind:'attach',month:'2024-07',sess:'s2'},
+ {n:'2024-08/Img/配色方案.jpg',s:90*MB,a:60,kind:'attach',month:'2024-08',sess:'s2'},
+ {n:'2024-08/Img/061d…（未识别会话）.jpg',s:300*MB,a:63,kind:'attach',month:'2024-08',sess:'s3'},
+ {n:'2023-11/Img/名片扫描.jpg',s:50*MB,a:700,kind:'attach',month:'2023-11',sess:'s4'},
+ /* video 1.8G */
+ {n:'2024-08/91c6524f….mp4',s:700*MB,a:62,kind:'video',month:'2024-08',sess:null},
+ {n:'2024-08/761e22b6….mp4',s:340*MB,a:64,kind:'video',month:'2024-08',sess:null},
+ {n:'2024-08/fc3f6a63….mp4',s:280*MB,a:66,kind:'video',month:'2024-08',sess:null},
+ {n:'2024-08/a1b2c3d4…_thumb.jpg',s:0.3*MB,a:66,kind:'video',month:'2024-08',sess:null,orphan:true},
+ {n:'2023-11/9f2e77aa….mp4',s:520*MB,a:700,kind:'video',month:'2023-11',sess:null},
+ {n:'2023-11/33d19c0b….mp4',s:100*MB,a:705,kind:'video',month:'2023-11',sess:null},
+ {n:'2023-11/77e0aa12…_thumb.jpg',s:0.4*MB,a:706,kind:'video',month:'2023-11',sess:null,orphan:true},
+ {n:'2023-10/be44cc90….mp4',s:300*MB,a:735,kind:'video',month:'2023-10',sess:null},
+ {n:'2023-10/00ee11ff…_thumb.jpg',s:0.5*MB,a:736,kind:'video',month:'2023-10',sess:null,orphan:true},
+ {n:'2022-01/cc9012ab….mp4',s:180*MB,a:1360,kind:'video',month:'2022-01',sess:null},
+ /* file 145M */
+ {n:'2024-08/PRD-会员体系-v12.pdf',s:22*MB,a:62,kind:'file',month:'2024-08',sess:null},
+ {n:'2024-08/排期表-终版.xlsx',s:6*MB,a:64,kind:'file',month:'2024-08',sess:null},
+ {n:'2024-07/培训材料.pptx',s:38*MB,a:93,kind:'file',month:'2024-07',sess:null},
+ {n:'2024-06/合同-扫描版.pdf',s:9*MB,a:125,kind:'file',month:'2024-06',sess:null},
+ {n:'2024-05/数据备份.zip',s:20*MB,a:154,kind:'file',month:'2024-05',sess:null},
+ {n:'2023-10/周报汇总.docx',s:15*MB,a:734,kind:'file',month:'2023-10',sess:null},
+ {n:'2022-01/旧项目资料.rar',s:35*MB,a:1362,kind:'file',month:'2022-01',sess:null},
+];
+/* 安全缓存项 */
+const CACHES=[
+  {n:'Caches 资源缓存',path:'…/wxid_…/cache',s:110*MB,desc:'表情/小程序临时资源，清理后按需重新下载'},
+  {n:'business 小程序与插件',path:'…/wxid_…/business',s:100*MB,desc:'小程序包缓存，下次打开自动恢复'},
+  {n:'temp 临时文件',path:'…/wxid_…/temp',s:6.5*MB,desc:'下载临时文件'},
+];
+const DB_SIZE=545*MB;  // db_storage：仅展示，禁止清理
+
+let weChatRunning=true, scanned=false, ageThreshold=180;
+let typeFilter='all', sizeMin=0, viewMode='group', mSort='timeDesc', fSort='sizeDesc';
+let selected=new Set(), cleanedKeys=new Set();
+let protectedSet=new Set(['s1'.replace('s1','__none__')]);  // 默认为空演示
+let openGrp={}, curTab={};
+let cleanCtx='months';
+
+/* ================= 工具 ================= */
+const $=id=>document.getElementById(id);
+const fmt=b=>b>=GB?(b/GB).toFixed(2)+' GB':Math.round(b/MB)+' MB';
+const K=idx=>'f'+idx;
+const fByIdx=idx=>FILES[idx];
+const sessById=id=>SESSIONS.find(s=>s.id===id);
+const sessName=sess=>sess?sess.name||sess.hash.slice(0,8)+'…（未识别）':'全局池';
+const inAge=f=>ageThreshold===0||f.a>=ageThreshold;
+const passFilter=f=>(typeFilter==='all'||f.kind===typeFilter)&&f.s>=sizeMin*MB;
+function cmpFiles(mode){return(a,b)=>{
+  if(mode==='sizeAsc')return a.s-b.s;
+  if(mode==='timeDesc')return a.a-b.a;
+  if(mode==='timeAsc')return b.a-a.a;
+  if(mode==='name')return a.n.localeCompare(b.n,'zh');
+  return b.s-a.s;};}
+const cleanable=f=>!f.orphan&&inAge(f)&&!cleanedKeys.has(K(f._i))&&!(f.kind==='attach'&&f.sess&&protectedSet.has(f.sess));
+const orphanFiles=()=>FILES.filter(f=>f.orphan&&!cleanedKeys.has(K(f._i)));
+const filesIn=kind=>FILES.filter(f=>f.kind===kind&&!cleanedKeys.has(K(f._i)));
+const dirSize=kind=>kind==='cache'?CACHES.reduce((a,c)=>a+c.s,0):filesIn(kind).reduce((a,f)=>a+f.s,0);
+const dbFiles=idx=>!cleanedKeys.has(K(idx));
+const MONTHS=()=>[...new Set(FILES.map(f=>f.month))].sort().reverse();
+let toastT=null;
+function toast(m){$('toastMsg').textContent=m;$('toast').classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>$('toast').classList.remove('show'),2600);}
+
+/* ================= 导航 ================= */
+const TITLES={overview:['微信数据体检','上次体检：从未'],months:['按月份清理','主轴 · video/file 全局按月池 + attach 图片'],orphans:['孤儿与缓存','零风险清理大头'],sessions:['按会话清理（进阶）','仅 msg/attach 图片类'],protect:['保护名单','星标会话图片免疫清理'],cleaning:['正在清理',''],done:['清理完成','']};
+document.querySelectorAll('.nav-item').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    if(btn.dataset.view!=='overview'&&!scanned){toast('请先完成数据体检');return;}
+    document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');showView(btn.dataset.view);
+  });
+});
+function showView(v){
+  document.querySelectorAll('.view').forEach(s=>s.classList.remove('show'));
+  $('view-'+v)&&$('view-'+v).classList.add('show');
+  const t=TITLES[v]||['',''];
+  $('viewTitle').textContent=t[0];
+  $('viewSub').textContent=(v==='months'||v==='orphans'||v==='sessions')&&scanned?`时间阈值：${ageThreshold===0?'全部文件':ageThreshold+' 天前'} · 上次体检：刚刚`:t[1];
+  $('btnRescan').hidden=!scanned;
+  $('barM').classList.toggle('show',v==='months'&&scanned);
+  $('barO').classList.toggle('show',v==='orphans'&&scanned);
+  $('barS').classList.toggle('show',v==='sessions'&&scanned);
+  if(v==='overview')renderOverview();
+  if(v==='months'){$('selMSort').hidden=viewMode!=='group';$('btnPickFlat').hidden=viewMode!=='flat';viewMode==='flat'?renderFlat():renderMonths();}
+  if(v==='orphans')renderOrphans();
+  if(v==='sessions')renderSessions();
+  if(v==='protect')renderProtect();
+}
+
+/* ================= 微信运行横幅 ================= */
+$('btnQuitWx').addEventListener('click',()=>{weChatRunning=false;$('wxRun').classList.add('dim');
+  $('wxRun').querySelector('span:nth-child(2)').innerHTML='<b>微信已退出</b>，媒体文件不再被占用，可安全清理全部文件。';
+  toast('已确认微信退出状态');});
+$('btnKeepRun').addEventListener('click',()=>{
+  $('wxRun').classList.add('dim');
+  $('wxRun').querySelector('span:nth-child(2)').innerHTML='<b>继续清理缓存模式</b> — 将跳过微信可能占用的近期文件（30 天内自动上锁）。';
+  toast('已切换为安全模式：仅清理 30 天前文件');});
+
+/* ================= 体检 ================= */
+let scanTimer=null;
+function startScan(){
+  showView('scanning');let p=0;
+  const paths=['msg/attach/<hash>/2024-08/Img…','msg/video/2024-08/*.mp4','msg/file/2024-07/*','cache/…','business/…','检测孤儿缩略图…','（跳过 db_storage 聊天数据库）'];
+  clearInterval(scanTimer);
+  scanTimer=setInterval(()=>{
+    p=Math.min(100,p+Math.random()*6+2);
+    $('scanRing').style.setProperty('--p',p+'%');
+    $('scanStat').textContent=Math.floor(p)+'%';
+    $('scanPath').textContent=paths[Math.floor(p/100*paths.length)]||paths.at(-1);
+    if(p>=100){clearInterval(scanTimer);finishScan();}
+  },90);
+}
+function finishScan(){
+  scanned=true;
+  renderMonths();renderOrphans();renderSessions();renderProtect();
+  updateNavCnts();
+  const tot=dirSize('attach')+dirSize('video')+dirSize('file');
+  $('chipTotal').textContent=`媒体 ${fmt(tot)} · 缓存 ${fmt(dirSize('cache'))}`;
+  toast(`体检完成：媒体 ${fmt(tot)}，孤儿与缓存 ${fmt(orphanFiles().reduce((a,f)=>a+f.s,0)+dirSize('cache'))} 可安全清理`);
+  document.querySelector('[data-view="months"]').click();
+}
+$('btnScan').addEventListener('click',startScan);
+$('btnRescan').addEventListener('click',startScan);
+$('btnCancelScan').addEventListener('click',()=>{clearInterval(scanTimer);showView('overview');});
+function updateNavCnts(){
+  const m=MONTHS().filter(mo=>FILES.filter(f=>f.month===mo&&cleanable(f)).length>0);
+  $('navCntM').hidden=false;$('navCntM').textContent=m.length;
+  $('navCntO').hidden=false;$('navCntO').textContent=orphanFiles().length+CACHES.length;
+  $('navCntS').hidden=false;$('navCntS').textContent=SESSIONS.filter(s=>filesIn('attach').some(f=>f.sess===s.id&&cleanable(f))).length;
+  $('navCntP').hidden=protectedSet.size===0;$('navCntP').textContent=protectedSet.size;
+}
+
+/* ================= 概览 ================= */
+function renderOverview(){
+  const used=['attach','video','file'].reduce((a,k)=>a+dirSize(k),0)+dirSize('cache');
+  let acc=0,stops=[];
+  Object.keys(DIRS).forEach(k=>{const sh=dirSize(k)/used*100;stops.push(`${DIRS[k].color} ${acc}% ${acc+sh}%`);acc+=sh;});
+  stops.push('#d1d1d6 100%');
+  $('bigRing').style.background=scanned?`conic-gradient(${stops.join(',')})`:'conic-gradient(#c7c7cc 0 100%)';
+  $('bigRing').style.webkitMask='radial-gradient(circle,transparent 62%,#000 63%)';
+  $('ringBig').textContent=scanned?fmt(used):'—';
+  $('dirBars').innerHTML=Object.keys(DIRS).map(k=>{
+    const sh=scanned?Math.min(100,dirSize(k)/used*100):0;
+    return `<div class="dir-bar"><div class="row"><span class="p" title="${DIRS[k].desc}">${scanned?'':'· '}${DIRS[k].name}</span><b>${scanned?fmt(dirSize(k)):'—'}</b></div>
+    <div class="track"><div class="fill" style="width:${sh}%;background:${DIRS[k].color}"></div></div></div>`;}).join('')
+    +`<div class="dir-bar no"><div class="row"><span class="p" title="聊天记录数据库，绝不清理">⛔ db_storage 聊天数据库</span><b>${scanned?fmt(DB_SIZE):'—'}</b></div>
+    <div class="track"><div class="fill" style="width:0%;background:var(--bad)"></div></div></div>`;
+  $('topTiles').innerHTML=scanned?[
+    {ico:'📅',name:'按月份清理',v:fmt(filesIn('video').reduce((a,f)=>a+f.s,0)+filesIn('file').reduce((a,f)=>a+f.s,0)),n:'主轴 · 视频与文件按月池直接可清',goto:'months',bg:'var(--accent)'},
+    {ico:'🧩',name:'孤儿与缓存',v:fmt(orphanFiles().reduce((a,f)=>a+f.s,0)+dirSize('cache')),n:'零风险 · 孤儿缩略图 + 杂项缓存',goto:'orphans',bg:'var(--warn)'},
+    {ico:'💬',name:'按会话（图片）',v:fmt(dirSize('attach')),n:'进阶 · 仅 attach 图片可定位会话',goto:'sessions',bg:'var(--wxb)'},
+  ].map(t=>`<div class="tile" data-goto="${t.goto}" role="button" tabindex="0">
+      <div class="t"><span class="sw" style="background:${t.bg}">${t.ico}</span>${t.name}</div>
+      <div class="v">${t.v}</div><div class="n">${t.n}</div></div>`).join('')
+   :`<div class="tile" style="grid-column:1/-1;text-align:center;color:var(--fg-2)">点击「开始体检」以分析微信 4.x 的真实存储占用</div>`;
+  $('topTiles').querySelectorAll('[data-goto]').forEach(t=>{
+    const go=()=>document.querySelector(`[data-view="${t.dataset.goto}"]`).click();
+    t.addEventListener('click',go);t.addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+  });
+}
+
+/* ================= 时间阈值 ================= */
+document.querySelectorAll('.seg-btn[data-age]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.seg-btn[data-age]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    ageThreshold=+b.dataset.age;selected.clear();
+    $('ageHint').innerHTML=ageThreshold===0?'清理<b>全部时间</b>的文件（含近期，请谨慎）':`仅清理 <b>${ageThreshold} 天前</b> 的文件，近期文件已自动上锁保护`;
+    showView('months');
+  });
+});
+
+/* ================= 按月份（主轴） ================= */
+function renderMonths(){
+  // 月份桶：应用类型/大小筛选 + 排序
+  const byMonth={};
+  FILES.forEach((f,i)=>{
+    if(f.orphan||cleanedKeys.has(K(i))||!passFilter(f))return;
+    (byMonth[f.month]=byMonth[f.month]||[]).push({...f,_i:i});
+  });
+  let months=Object.keys(byMonth);
+  const monthSize=mo=>byMonth[mo].reduce((a,f)=>a+f.s,0);
+  if(mSort==='timeAsc')months.sort();
+  else if(mSort==='sizeDesc')months.sort((a,b)=>monthSize(b)-monthSize(a));
+  else months.sort().reverse();
+  $('monthList').innerHTML=months.map(mo=>{
+    const items=byMonth[mo];
+    const open=openGrp['m:'+mo];
+    const byKind={};items.forEach(f=>{byKind[f.kind]=byKind[f.kind]||[];byKind[f.kind].push(f);});
+    const kindTabs=typeFilter!=='all'?[typeFilter]:Object.keys(byKind);
+    const tab=curTab['m:'+mo]&&kindTabs.includes(curTab['m:'+mo])?curTab['m:'+mo]:kindTabs[0];
+    const tabItems=(byKind[tab]||[]).sort(cmpFiles(fSort));
+    const allPick=tabItems.some(cleanable)&&tabItems.filter(cleanable).every(f=>selected.has(K(f._i)));
+    return `<div class="grp-card ${open?'open':''}" id="gm-${mo}">
+     <div class="grp-head" data-grp="m:${mo}" role="button" tabindex="0" aria-expanded="${!!open}">
+       <span class="avt" style="background:var(--wxb)">📅</span>
+       <div class="grp-meta"><div class="name">${mo}<span style="font-size:10.5px;font-weight:600;color:var(--fg-2);background:rgba(0,0,0,.05);padding:1px 7px;border-radius:9px">月份桶</span></div>
+       <div class="desc">${kindTabs.map(k=>`${k==='attach'?'🖼 图片':k==='video'?'🎬 视频':'📄 文件'} ×${byKind[k]?byKind[k].length:0}`).join(' · ')} · 可清理 ${items.filter(cleanable).length} 个</div></div>
+       <div class="grp-nums"><div class="v">${fmt(items.reduce((a,f)=>a+f.s,0))}</div><div class="c">${items.length} 个文件</div></div>
+       <span class="chev">›</span>
+     </div>
+     <div class="grp-body">
+       <div class="sess-tools">
+         <div class="type-tabs">${kindTabs.map(k=>`<button class="type-tab ${k===tab?'active':''}" data-grp="m:${mo}" data-tab="${k}">${k==='attach'?'🖼 图片':k==='video'?'🎬 视频':'📄 文件'} ${(byKind[k]||[]).length}</button>`).join('')}</div>
+         <label class="pick-mini" data-pick="m:${mo}" data-tab="${tab}" role="button" tabindex="0">${allPick?'☑ 已选本类':'☐ 选本类可清理项'}</label>
+       </div>
+       <div class="file-grid">
+        ${tabItems.map(f=>{
+          const key=K(f._i),ok=cleanable(f),sel=selected.has(key);
+          return `<div class="file-card ${sel?'selected':''} ${ok?'':'locked'} ${cleanedKeys.has(key)?'cleaned':''}" data-key="${key}" role="checkbox" tabindex="0" aria-checked="${sel}">
+           <div class="thumb" style="background:linear-gradient(135deg,${DIRS[f.kind].color}22,${DIRS[f.kind].color}55)">
+             ${cleanedKeys.has(key)?'🗑':f.kind==='video'?'🎬':f.kind==='file'?'📄':'🖼'}
+             ${ok?'':`<span class="lock-badge">🔒 近期</span>`}
+             <span class="fc-check">✓</span>
+           </div>
+           <div class="fc-name" title="${f.n}"><bdi>${f.n}</bdi></div>
+           <div class="fc-meta"><b>${fmt(f.s)}</b><span>${f.a} 天前</span></div>
+          </div>`;}).join('')}
+       </div>
+     </div>
+    </div>`;}).join('')||'<div class="grp-card"><div class="prot-note" style="padding:16px">当前筛选与阈值下暂无可清理月份</div></div>';
+  bindGrpEvents($('monthList'));
+  syncBar('M');
+}
+/* 平铺模式：跨月份统一列表 */
+function renderFlat(){
+  const items=FILES.map((f,i)=>({...f,_i:i}))
+    .filter(f=>!f.orphan&&!cleanedKeys.has(K(f._i))&&passFilter(f))
+    .sort(cmpFiles(fSort));
+  $('monthList').innerHTML=`<div class="flat-wrap">${
+    items.map(f=>{
+      const key=K(f._i),ok=cleanable(f),sel=selected.has(key);
+      const sn=f.sess?sessName(sessById(f.sess)):'全局池';
+      return `<div class="flat-row" data-key="${key}">
+       <span class="l-check ${sel?'checked':''}" role="checkbox" tabindex="0" aria-checked="${sel}" data-key="${key}">✓</span>
+       <span class="l-ico" style="background:${DIRS[f.kind].color}22;border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;flex:0 0 32px">${f.kind==='video'?'🎬':f.kind==='file'?'📄':'🖼'}</span>
+       <div style="min-width:0"><div class="l-name" title="${f.n}"><bdi>${f.n}</bdi></div>
+       <div class="l-from"><span class="mtag">${f.month}</span> ${sn} · ${f.a} 天前${ok?'':' · 🔒 近期锁定'}</div></div>
+       <span class="l-size">${fmt(f.s)}</span></div>`;}).join('')
+    ||'<div class="prot-row" style="color:var(--fg-3)">当前筛选与阈值下暂无文件</div>'}</div>`;
+  $('monthList').querySelectorAll('.flat-row').forEach(row=>{
+    const act=()=>{const k=row.dataset.key;selected.has(k)?selected.delete(k):selected.add(k);
+      row.querySelector('.l-check').classList.toggle('checked',selected.has(k));
+      row.querySelector('.l-check').setAttribute('aria-checked',selected.has(k));syncBar('M');};
+    row.addEventListener('click',act);
+    row.querySelector('.l-check').addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();act();}});
+  });
+  syncBar('M');
+}
+function bindGrpEvents(root){
+  root.querySelectorAll('.grp-head').forEach(h=>{
+    h.addEventListener('click',e=>{if(e.target.closest('.star'))return;
+      const g=h.dataset.grp;openGrp[g]=!openGrp[g];
+      if(g.startsWith('m:'))renderMonths();else if(g.startsWith('s:'))renderSessions();});
+    h.addEventListener('keydown',e=>{if(e.key==='Enter')h.click();});
+  });
+  root.querySelectorAll('.type-tab').forEach(tb=>{
+    tb.addEventListener('click',()=>{curTab[tb.dataset.grp]=tb.dataset.tab;
+      tb.dataset.grp.startsWith('m:')?renderMonths():renderSessions();});
+  });
+  root.querySelectorAll('.pick-mini').forEach(pm=>{
+    pm.addEventListener('click',()=>pickGroup(pm.dataset.pick,pm.dataset.tab));
+  });
+  root.querySelectorAll('.file-card').forEach(fc=>{
+    fc.addEventListener('click',()=>{const k=fc.dataset.key;selected.has(k)?selected.delete(k):selected.add(k);
+      fc.classList.toggle('selected',selected.has(k));fc.setAttribute('aria-checked',selected.has(k));syncBar('M');});
+    fc.addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();fc.click();}});
+  });
+  root.querySelectorAll('.star').forEach(st=>{
+    st.addEventListener('click',e=>{e.stopPropagation();toggleProtect(st.dataset.sid);});
+  });
+  root.querySelectorAll('.l-check').forEach(chk=>{
+    chk.addEventListener('click',()=>{const k=chk.dataset.key;selected.has(k)?selected.delete(k):selected.add(k);
+      chk.classList.toggle('checked',selected.has(k));syncBar('M');});
+  });
+}
+function pickGroup(grp,tab){
+  const [gtype,gid]=grp.split(':');
+  let items=[];
+  if(gtype==='m'){items=FILES.map((f,i)=>({...f,_i:i})).filter(f=>f.month===gid&&f.kind===tab&&!f.orphan&&!cleanedKeys.has(K(f._i))&&passFilter(f));}
+  else{items=FILES.map((f,i)=>({...f,_i:i})).filter(f=>f.kind==='attach'&&f.sess===gid&&!cleanedKeys.has(K(f._i)));}
+  items.filter(cleanable).forEach(f=>selected.add(K(f._i)));
+  gtype==='m'?(viewMode==='flat'?renderFlat():renderMonths()):renderSessions();
+}
+function syncBar(which){
+  const sel=FILES.filter((f,i)=>selected.has(K(i)));
+  const size=sel.reduce((a,f)=>a+f.s,0);
+  $('sumM').textContent=fmt(size);
+  $('sumCntM').textContent=`已选 ${sel.length} 个文件 · 涉及 ${new Set(sel.map(f=>f.month)).size} 个月份桶`;
+  $('btnCleanM').disabled=sel.length===0;
+  $('sumS').textContent=fmt(size);
+  $('sumCntS').textContent=`已选 ${sel.length} 个文件 · 涉及 ${new Set(sel.map(f=>f.sess&&sessName(sessById(f.sess)))).size} 个会话`;
+  $('btnCleanS').disabled=sel.length===0;
+}
+
+/* ================= 孤儿与缓存 ================= */
+function renderOrphans(){
+  const orph=orphanFiles();
+  const html=`
+  ${orph.length?`<div class="grp-card">
+   <div class="grp-head" style="cursor:default">
+     <span class="avt" style="background:var(--warn)">🧩</span>
+     <div class="grp-meta"><div class="name">孤儿文件<span class="tag-prot" style="font-size:10px;font-weight:700;color:var(--warn);background:rgba(255,159,10,.14);padding:1px 7px;border-radius:9px">零风险</span></div>
+     <div class="desc">缩略图无视频本体等残留 · 微信已无法引用</div></div>
+     <div class="grp-nums"><div class="v">${fmt(orph.reduce((a,f)=>a+f.s,0))}</div><div class="c">${orph.length} 个文件</div></div>
+   </div>
+   <div class="grp-body" style="display:block">
+     <div class="file-grid">${orph.map(f=>{const key=K(f._i),sel=selected.has(key);
+       return `<div class="file-card ${sel?'selected':''}" data-key="${key}" role="checkbox" tabindex="0" aria-checked="${sel}">
+        <div class="thumb" style="background:linear-gradient(135deg,#ff9f0a22,#ff9f0a55)">🧩<span class="orphan-badge">孤儿</span><span class="fc-check">✓</span></div>
+        <div class="fc-name" title="${f.n}"><bdi>${f.n}</bdi></div>
+        <div class="fc-meta"><b>${fmt(f.s)}</b><span>${f.a} 天前</span></div></div>`;}).join('')}</div>
+   </div>
+  </div>`:''}
+  <div class="grp-card">
+   <div class="grp-head" style="cursor:default">
+     <span class="avt" style="background:var(--accent)">🧹</span>
+     <div class="grp-meta"><div class="name">安全缓存<span class="tag-prot" style="font-size:10px;font-weight:700;color:var(--accent-deep);background:rgba(7,193,96,.12);padding:1px 7px;border-radius:9px">可再生成</span></div>
+     <div class="desc">清理后微信按需重新下载</div></div>
+     <div class="grp-nums"><div class="v">${fmt(dirSize('cache'))}</div><div class="c">${CACHES.length} 项</div></div>
+   </div>
+   <div class="grp-body" style="display:block">
+     ${CACHES.map((c,i)=>{const key='c'+i,sel=selected.has(key);
+       return `<div class="prot-row" style="cursor:pointer" data-cache="${key}">
+        <span class="l-check ${sel?'checked':''}" data-key="${key}" role="checkbox" tabindex="0" aria-checked="${sel}">✓</span>
+        <div style="flex:1;min-width:0"><div class="l-name">${c.n}</div><div class="l-from">${c.desc} · <code>${c.path}</code></div></div>
+        <span class="l-size">${fmt(c.s)}</span></div>`;}).join('')}
+   </div>
+  </div>`;
+  $('orphanList').innerHTML=html;
+  $('orphanList').querySelectorAll('.file-card').forEach(fc=>{
+    fc.addEventListener('click',()=>{const k=fc.dataset.key;selected.has(k)?selected.delete(k):selected.add(k);
+      fc.classList.toggle('selected',selected.has(k));syncOrphanBar();});
+  });
+  $('orphanList').querySelectorAll('[data-cache]').forEach(row=>{
+    const act=()=>{const k=row.dataset.cache;selected.has(k)?selected.delete(k):selected.add(k);
+      row.querySelector('.l-check').classList.toggle('checked',selected.has(k));syncOrphanBar();};
+    row.addEventListener('click',act);
+    row.querySelector('.l-check').addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();act();}});
+  });
+  syncOrphanBar();
+}
+function syncOrphanBar(){
+  const orph=orphanFiles().filter(f=>selected.has(K(f._i)));
+  const caches=CACHES.filter((c,i)=>selected.has('c'+i));
+  const size=orph.reduce((a,f)=>a+f.s,0)+caches.reduce((a,c)=>a+c.s,0);
+  $('sumO').textContent=fmt(size);
+  $('sumCntO').textContent=`已选 ${orph.length+caches.length} 项（孤儿 ${orph.length} · 缓存 ${caches.length}）`;
+  $('btnCleanO').disabled=(orph.length+caches.length)===0;
+}
+
+/* ================= 按会话（进阶，仅 attach） ================= */
+function renderSessions(){
+  $('sessList').innerHTML=SESSIONS.map(s=>{
+    const prot=protectedSet.has(s.id);
+    const items=filesIn('attach').filter(f=>f.sess===s.id);
+    if(items.length===0)return'';
+    const g='s:'+s.id,open=openGrp[g];
+    return `<div class="grp-card ${open?'open':''} ${prot?'protected':''}" id="gs-${s.id}">
+     <div class="grp-head" data-grp="${g}" role="button" tabindex="0" aria-expanded="${!!open}">
+       <span class="avt" style="background:${s.color}">${s.name?s.name[0]:'?'}</span>
+       <div class="grp-meta"><div class="name">${sessName(s)}<span style="font-size:10.5px;font-weight:600;color:var(--fg-2);background:rgba(0,0,0,.05);padding:1px 7px;border-radius:9px">${s.kind}</span>${prot?'<span class="tag-prot" style="font-size:10px;font-weight:700;color:var(--warn);background:rgba(255,159,10,.14);padding:1px 7px;border-radius:9px">🛡 已保护</span>':''}</div>
+       <div class="desc"><code>${s.hash.slice(0,12)}…</code> · ${prot?'已完全保护':`${items.filter(cleanable).length} 个可清理图片`}</div></div>
+       <div class="grp-nums"><div class="v">${prot?'—':fmt(items.filter(cleanable).reduce((a,f)=>a+f.s,0))}</div><div class="c">可清理 / 总 ${fmt(items.reduce((a,f)=>a+f.s,0))}</div></div>
+       <button class="star ${prot?'on':''}" data-sid="${s.id}" title="${prot?'移出保护名单':'加入保护名单'}">${prot?'★':'☆'}</button>
+       <span class="chev">›</span>
+     </div>
+     <div class="grp-body">
+       ${prot?'<div class="prot-note" style="padding:14px 18px">该会话在保护名单中，图片文件不可清理。点击 ★ 可移出保护。</div>':
+       `<div class="sess-tools"><label class="pick-mini" data-pick="${g}" role="button" tabindex="0">☐ 选本会话可清理项</label></div>
+       <div class="file-grid">${items.map(f=>{const key=K(f._i),ok=cleanable(f),sel=selected.has(key);
+         return `<div class="file-card ${sel?'selected':''} ${ok?'':'locked'} ${cleanedKeys.has(key)?'cleaned':''}" data-key="${key}" role="checkbox" tabindex="0" aria-checked="${sel}">
+          <div class="thumb" style="background:linear-gradient(135deg,#5ac8fa22,#5ac8fa55)">🖼${ok?'':`<span class="lock-badge">🔒 近期</span>`}<span class="fc-check">✓</span></div>
+          <div class="fc-name" title="${f.n}"><bdi>${f.n}</bdi></div>
+          <div class="fc-meta"><b>${fmt(f.s)}</b><span>${f.a} 天前</span></div></div>`;}).join('')}</div>`}
+     </div>
+    </div>`;}).join('')||'<div class="grp-card"><div class="prot-note" style="padding:16px">当前阈值下暂无可清理会话</div></div>';
+  bindGrpEvents($('sessList'));
+  syncBar('S');
+}
+
+/* ================= 保护名单 ================= */
+function toggleProtect(sid){
+  if(protectedSet.has(sid)){protectedSet.delete(sid);toast('已移出保护名单，该会话图片重新参与清理');}
+  else{protectedSet.add(sid);
+    FILES.forEach((f,i)=>{if(f.sess===sid)selected.delete(K(i));});
+    toast('已加入保护名单，该会话全部图片不可清理');}
+  renderSessions();renderProtect();updateNavCnts();
+}
+function renderProtect(){
+  const list=SESSIONS.filter(s=>protectedSet.has(s.id));
+  const total=FILES.filter(f=>f.sess&&protectedSet.has(f.sess)).reduce((a,f)=>a+f.s,0);
+  $('protList').innerHTML=list.length?list.map(s=>{
+    const tot=FILES.filter(f=>f.sess===s.id).reduce((a,f)=>a+f.s,0);
+    return `<div class="prot-row">
+     <span class="avt" style="background:${s.color}">${s.name?s.name[0]:'?'}</span>
+     <div style="flex:1;min-width:0"><div class="l-name">${sessName(s)}</div><div class="l-from">${s.kind} · 图片占用 ${fmt(tot)}</div></div>
+     <button class="btn btn-ghost" data-sid="${s.id}">移出保护</button></div>`;}).join('')
+   :'<div class="prot-row" style="color:var(--fg-3)">暂无保护会话。在「按会话（图片）」中点击 ☆ 即可加入。</div>';
+  $('protList').querySelectorAll('[data-sid]').forEach(b=>b.addEventListener('click',()=>toggleProtect(b.dataset.sid)));
+  $('navCntP').hidden=list.length===0;$('navCntP').textContent=list.length;
+}
+
+/* ================= 确认弹窗 ================= */
+function openModal(ctx){
+  cleanCtx=ctx;
+  const sel=FILES.filter((f,i)=>selected.has(K(i)));
+  const cacheSel=ctx==='orphans'?CACHES.filter((c,i)=>selected.has('c'+i)):[];
+  const groups={};
+  sel.forEach(f=>{const g=ctx==='months'?`${f.month} · ${DIRS[f.kind].name.split(' ')[1]||f.kind}`:ctx==='sessions'?sessName(sessById(f.sess)):f.orphan?'孤儿文件':DIRS[f.kind].name;
+    groups[g]=groups[g]||{n:0,s:0};groups[g].n++;groups[g].s+=f.s;});
+  cacheSel.forEach(c=>{groups['缓存 · '+c.n]={n:1,s:c.s};});
+  const total=sel.reduce((a,f)=>a+f.s,0)+cacheSel.reduce((a,c)=>a+c.s,0);
+  const cnt=sel.length+cacheSel.length;
+  $('mSub').textContent=`共 ${cnt} 项 · 合计 ${fmt(total)}。将移入废纸篓，聊天记录（db_storage）不受影响。`;
+  $('modalList').innerHTML=Object.entries(groups).map(([k,v])=>`<div class="ml-row"><span>${k}（${v.n} 项）</span><span>${fmt(v.s)}</span></div>`).join('');
+  $('overlay').classList.add('show');$('mConfirm').focus();
+}
+$('btnCleanM').addEventListener('click',()=>openModal('months'));
+$('btnCleanS').addEventListener('click',()=>openModal('sessions'));
+$('btnCleanO').addEventListener('click',()=>openModal('orphans'));
+$('mCancel').addEventListener('click',()=>$('overlay').classList.remove('show'));
+$('overlay').addEventListener('click',e=>{if(e.target===$('overlay'))$('overlay').classList.remove('show');});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$('overlay').classList.remove('show');});
+$('mConfirm').addEventListener('click',()=>{$('overlay').classList.remove('show');startClean();});
+
+/* ================= 清理执行 ================= */
+function startClean(){
+  const fileSel=FILES.filter((f,i)=>selected.has(K(i)));
+  const cacheSel=cleanCtx==='orphans'?CACHES.filter((c,i)=>selected.has('c'+i)):[];
+  const items=fileSel.map(f=>({name:f.n,size:f.s})).concat(cacheSel.map(c=>({name:c.n+'（缓存）',size:c.s})));
+  showView('cleaning');
+  $('cleanList').innerHTML=items.map((it,i)=>`<div class="cl-row" id="cl-${i}"><span class="tick">✓</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${it.name}</span><span>${fmt(it.size)}</span></div>`).join('');
+  let p=0;
+  const t=setInterval(()=>{
+    p=Math.min(100,p+100/Math.max(items.length,1)*.9);
+    $('cleanFill').style.width=p+'%';
+    items.forEach((it,i)=>{if(p>=(i+1)/items.length*100-2)$('cl-'+i).classList.add('done');});
+    if(p>=100){
+      clearInterval(t);
+      fileSel.forEach(f=>cleanedKeys.add(K(f._i)));
+      selected.clear();
+      renderMonths();renderOrphans();renderSessions();updateNavCnts();
+      setTimeout(()=>{$('doneBig').textContent='+'+fmt(items.reduce((a,x)=>a+x.size,0));showView('done');},600);
+    }
+  },260);
+}
+$('btnUndo').addEventListener('click',()=>{
+  cleanedKeys.clear();
+  renderMonths();renderOrphans();renderSessions();updateNavCnts();
+  toast('已从废纸篓放回全部文件');
+  document.querySelector('[data-view="months"]').click();
+});
+$('btnBackOverview').addEventListener('click',()=>document.querySelector('[data-view="overview"]').click());
+$('btnClearM').addEventListener('click',()=>{selected.clear();renderMonths();});
+$('btnClearS').addEventListener('click',()=>{selected.clear();renderSessions();});
+
+/* init（$ 与 DOM 均就绪） */
+/* 筛选与排序控件 */
+document.querySelectorAll('#view-months .seg-btn[data-type]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#view-months .seg-btn[data-type]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');typeFilter=b.dataset.type;selected.clear();
+  viewMode==='flat'?renderFlat():renderMonths();}));
+document.querySelectorAll('#view-months .seg-btn[data-min]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#view-months .seg-btn[data-min]').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');sizeMin=+b.dataset.min;selected.clear();
+  viewMode==='flat'?renderFlat():renderMonths();}));
+function setGroupMode(on){
+  viewMode=on?'group':'flat';openGrp={};
+  const sw=$('swGroup');
+  sw.classList.toggle('on',on);sw.setAttribute('aria-checked',on);
+  $('swLabel').textContent=on?'按月份分组':'平铺列表';   // 开关旁文字始终提示当前模式
+  $('selMSort').hidden=!on;      // 月份排序仅分组模式有意义
+  $('btnPickFlat').hidden=on;    // 选本页可清理项仅平铺模式有意义
+  on?renderMonths():renderFlat();
+}
+/* 绑定整行：点开关或点文字均可切换（事件只绑行，避免开关/文字双触发） */
+$('swRow').addEventListener('click',()=>setGroupMode(viewMode!=='group'));
+$('swRow').addEventListener('keydown',e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();setGroupMode(viewMode!=='group');}});
+$('selMSort').addEventListener('change',()=>{mSort=$('selMSort').value;renderMonths();});
+$('selFSort').addEventListener('change',()=>{fSort=$('selFSort').value;viewMode==='flat'?renderFlat():renderMonths();});
+$('btnPickFlat').addEventListener('click',()=>{
+  FILES.forEach((f,i)=>{if(!f.orphan&&passFilter(f)&&cleanable({...f,_i:i}))selected.add(K(i));});
+  renderFlat();toast('已选中当前筛选下的全部可清理项');});
+renderOverview();renderProtect();
+</script>
+</body>
+</html>

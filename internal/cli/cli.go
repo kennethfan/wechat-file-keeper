@@ -1,5 +1,8 @@
-// Command wechat-file-keeper 是 macOS 微信本地文件管理工具。
-package main
+// Package cli 是命令行入口。
+//
+// 图形界面是主入口，CLI 保留给脚本与调试用。两者共用 internal/ 下的
+// 同一套扫描、清理、撤销实现。
+package cli
 
 import (
 	"errors"
@@ -19,7 +22,6 @@ import (
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
 	"github.com/kennethfan/wechat-file-keeper/internal/scan"
 	"github.com/kennethfan/wechat-file-keeper/internal/trash"
-	"github.com/kennethfan/wechat-file-keeper/internal/ui"
 	"github.com/kennethfan/wechat-file-keeper/internal/undo"
 )
 
@@ -34,7 +36,6 @@ func usage() {
   wechat-file-keeper cache                         显示图片缓存年份分布
   wechat-file-keeper clean [选项]                   把选中项移入废纸篓（默认仅预览）
   wechat-file-keeper undo [--manifest <文件>]       按清单把文件搬回原位
-  wechat-file-keeper gui                            打开图形界面
 
 选项:
   --root <路径>        指定微信数据根目录（默认为本机标准位置）
@@ -49,11 +50,9 @@ func usage() {
 `)
 }
 
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
-		os.Exit(1)
-	}
+// Run 执行命令行子命令。
+func Run(args []string) error {
+	return run(args)
 }
 
 // run 分发子命令。
@@ -91,8 +90,7 @@ func run(args []string) error {
 		return runClean(*root, *libPath, *category, *minSize, *limit, *orphansOnly, *includeCache, *yes)
 	case "undo":
 		return runUndo(*manifestPath)
-	case "gui":
-		return ui.Run(*root, *libPath)
+
 	case "-h", "--help", "help":
 		usage()
 		return nil

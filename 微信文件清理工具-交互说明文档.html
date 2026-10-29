@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>微信文件清理工具-交互说明文档</title>
+<style>
+:root{
+  --bg:#0f1115; --bg-soft:#151922; --bg-card:#171c26; --line:#242b38;
+  --fg:#e6e9ef; --fg-dim:#9aa4b8; --fg-mute:#6b7589;
+  --accent:#5b9dff; --accent-2:#7c6cff; --ok:#3ecf8e; --warn:#f0b429; --bad:#f2555a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.85;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto;padding:56px 28px 96px}
+h1{font-size:30px;line-height:1.4;margin:8px 0 18px;letter-spacing:.4px;font-weight:700}
+h2{font-size:22px;margin:52px 0 16px;padding:14px 0 12px 14px;border-left:3px solid var(--accent);
+   background:linear-gradient(90deg,rgba(91,157,255,.10),transparent 70%);border-radius:0 6px 6px 0;font-weight:650}
+h3{font-size:17.5px;margin:34px 0 12px;color:#cfd8ea;font-weight:640}
+h4{font-size:15.5px;margin:24px 0 10px;color:#c2cadb;font-weight:640}
+p{margin:12px 0;color:#d5dbe7}
+a{color:var(--accent);text-decoration:none}
+hr{border:0;border-top:1px solid var(--line);margin:40px 0}
+ul,ol{padding-left:22px;margin:12px 0}
+li{margin:6px 0;color:#d5dbe7}
+code{background:#1d2331;border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;font-size:13px;color:#9fd0ff;
+  font-family:"SF Mono",Menlo,Consolas,monospace}
+pre{background:#12161f;border:1px solid var(--line);border-radius:10px;
+  padding:18px 20px;overflow-x:auto;margin:18px 0;line-height:1.6}
+pre code{background:none;border:0;padding:0;color:#a8b6d0;font-size:12.5px}
+blockquote{margin:18px 0;padding:14px 20px;background:var(--bg-soft);
+  border-left:3px solid var(--accent-2);border-radius:0 8px 8px 0;color:#c3ccdf}
+blockquote p{margin:4px 0;color:#c3ccdf}
+strong{color:#fff;font-weight:650}
+table{border-collapse:collapse;width:100%;margin:18px 0;font-size:13.6px;
+  background:var(--bg-card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th{background:#1b2130;color:#cdd6e8;text-align:left;padding:11px 14px;
+  font-weight:640;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid #1e2532;color:#c8d0e0;vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#1b2130}
+.tbl{overflow-x:auto;margin:18px 0}
+.tbl table{margin:0}
+.meta{color:var(--fg-mute);font-size:13px;margin-bottom:6px}
+.footnote{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+  color:var(--fg-mute);font-size:12.5px;font-style:italic}
+@media (max-width:640px){
+  .wrap{padding:32px 16px 64px}
+  h1{font-size:23px} h2{font-size:19px} h3{font-size:16px}
+  table{font-size:12.4px} th,td{padding:8px 10px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>微清 WeClean — Mac 微信文件清理工具交互说明文档</h1>
+<blockquote><p>版本：v2.0 ｜ 更新日期：2026-10-29 ｜ 配套产物：<code>微信文件清理工具-UI交互原型.html</code></p><p>视觉基调：与「净盘 CleanDisk」同产品家族（浅色 macOS 原生风），主色为微信绿 <code>#07c160</code></p><p>本版核心变化：<strong>信息架构基于微信 4.x 实测存储结构重构</strong>，废弃 v1.0 的"纯按会话"假设</p></blockquote>
+<hr>
+<h2>一、产品定位与设计原则</h2>
+<p><strong>产品定位</strong>：macOS 微信（4.x）媒体文件清理工具。与通用磁盘清理的差异点：微信数据有独立目录结构与"聊天记录不可触碰"的红线。</p>
+<p><strong>五条安全交互原则</strong>（贯穿全部流程）：</p>
+<ol><li><strong>只读体检</strong> — 分析阶段不改动任何文件，UI 常驻提示</li><li><strong>不碰聊天记录</strong> — <code>db_storage</code>（msg_*.db 数据库）在体检中单独列出、标记 ⛔ 禁止触碰、明确排除在扫描范围外；所有清理动作均声明"聊天记录不受影响"</li><li><strong>废纸篓语义</strong> — 清理 = 移入废纸篓，30 天内可恢复；完成页如实说明不立即释放磁盘</li><li><strong>保护名单</strong> — 星标会话完全免疫清理，防误删重要联系人的媒体</li><li><strong>时间阈值锁定</strong> — 阈值内的近期文件灰显上锁（🔒），从数据源头避免"刚发的文件被清掉"</li></ol>
+<hr>
+<h2>二、实测存储结构依据（设计的事实基础）</h2>
+<p>微信 4.x（macOS）实际路径：<code>~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/&lt;wxid&gt;/</code></p>
+<div class='tbl'><table><thead><tr><th>目录</th><th>实测占用</th><th>组织方式</th><th>工具策略</th></tr></thead><tbody><tr><td><code>msg/attach/</code></td><td>2.0 GB</td><td>会话哈希 → 月份 → Img</td><td><strong>按会话（进阶）</strong>视图，仅图片可直接定位</td></tr><tr><td><code>msg/video/</code></td><td>1.8 GB</td><td>月份平铺（<code>2023-11/&lt;md5&gt;.mp4</code> + <code>_thumb.jpg</code>）</td><td><strong>按月份（主轴）</strong></td></tr><tr><td><code>msg/file/</code></td><td>145 MB</td><td>月份平铺，保留原始文件名</td><td><strong>按月份（主轴）</strong></td></tr><tr><td><code>cache / temp / business</code></td><td>~220 MB</td><td>杂项缓存</td><td><strong>孤儿与缓存</strong>，安全清</td></tr><tr><td><code>db_storage/</code></td><td>545 MB</td><td>聊天记录数据库（msg_*.db）</td><td>⛔ 禁止触碰</td></tr></tbody></table></div>
+<p><strong>关键结论</strong>（决定 IA）：微信 3.x 的 <code>MessageTemp</code> 纯会话组织已废弃；4.x 中视频/文件是全局按月池，归属会话需只读查询数据库（结构未公开）。因此主轴从"按会话"改为"按月份 + 孤儿/缓存"，按会话降级为进阶能力并在 UI 如实标注。</p>
+<hr>
+<h2>三、信息架构</h2>
+<pre><code>窗口（macOS 红绿灯标题栏「微清 WeClean — 微信 4.x 文件清理」）
+├── 侧边栏
+│   ├── 微信数据卡（头像 + 路径 wxid 摘要 + 体检后显示占用/可清理）
+│   ├── 清理
+│   │   ├── 数据体检（概览，默认）
+│   │   ├── 按月份清理（主轴，角标 = 有可清理项的月份数）
+│   │   └── 孤儿与缓存（角标 = 孤儿文件数 + 缓存项数）
+│   ├── 进阶
+│   │   └── 按会话（图片）（角标 = 有可清理图片的会话数）
+│   └── 安全
+│       ├── 保护名单（角标 = 保护会话数）
+│       └── 安全承诺（只读体检 / 不碰聊天记录 / 废纸篓 / ⛔ db_storage）
+└── 主内容区（7 个视图态）
+    ├── 数据体检 / 体检扫描（流程态）
+    ├── 按月份清理（筛选 + 排序 + 分组/平铺开关）
+    ├── 孤儿与缓存
+    ├── 按会话（图片）（进阶）
+    ├── 保护名单
+    └── 清理进度 → 完成（流程态）
+└── 全局层：微信运行横幅（main 顶部常驻）、确认弹窗、toast</code></pre>
+<p><strong>导航守卫</strong>：未体检前点击清理类导航 → toast「请先完成数据体检」，不放行。</p>
+<hr>
+<h2>四、微信运行横幅（全局）</h2>
+<ul><li>默认显示：🟡 脉冲圆点 +「检测到微信正在运行，部分媒体文件可能被占用。建议先退出微信再清理」</li><li>两个出口：</li><li>「已退出微信」→ 横幅变暗、圆点变绿静止、文案改为确认状态</li><li>「继续清理缓存（安全）」→ 变暗，文案说明将跳过可能被占用的近期文件</li><li>位置固定在主区顶部，所有视图可见</li></ul>
+<hr>
+<h2>五、数据体检（概览）</h2>
+<p><strong>未体检态</strong>：</p>
+<ul><li>环形图灰色，中心「—」；目录条形图全为占位「—」</li><li>提示真实路径：<code>~/Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files/&lt;wxid&gt;/</code></li><li>主操作：「✨ 开始体检」+「只读分析 · 不改动任何文件 · 约 3 秒」</li></ul>
+<p><strong>体检中</strong>：</p>
+<ul><li>绿色进度环 + 百分比；滚动显示真实相对路径（<code>msg/attach/&lt;hash&gt;/2024-08/Img…</code> → <code>msg/video/…</code> → <code>msg/file/…</code> → <code>cache/…</code> → <code>检测孤儿缩略图…</code> → <code>（跳过 db_storage 聊天数据库）</code>）</li><li>明示 db_storage 不在扫描范围内；提供「取消」</li></ul>
+<p><strong>体检完成</strong>：</p>
+<ul><li>环形图按 attach/video/file/cache 四色分段</li><li>目录条形图：四个目录（含组织方式说明）+ 第五行 <strong>⛔ db_storage 聊天数据库</strong>（红色、填充为 0，仅展示体积——"列出但禁止"的视觉语言）</li><li>三张入口瓦片：按月份清理（主轴·占用合计）、孤儿与缓存（零风险合计）、按会话（进阶·attach 占用）；点击直达</li><li>侧边栏微信卡更新为「媒体 X · 缓存 Y」；toast 汇报体检结论</li><li>自动跳转按月份清理页</li></ul>
+<hr>
+<h2>六、按月份清理（主轴视图，交互最重）</h2>
+<h3>6.1 工具栏（两层）</h3>
+<p><strong>第一层：筛选 + 视图 + 排序</strong></p>
+<ul><li><strong>类型筛选</strong> chips：全部 / 🖼 图片 / 🎬 视频 / 📄 文件</li><li><strong>大小门槛</strong> chips：全部大小 / ≥10MB / ≥100MB</li><li><strong>「按月份分组」开关</strong>（iOS 风格，40×24 滑块，微信绿激活态）：</li><li>开 = 分组模式（月份桶卡片）；关 = 平铺模式（跨月份统一列表）</li><li><strong>整行可点</strong>——点开关本体或点旁边文字均可切换（单点绑定，无双触发）</li><li><strong>文字动态提示当前模式</strong>：开=「按月份分组」，关=「平铺列表」，任何时候模式有文字可读</li><li><code>role="switch"</code> + <code>aria-checked</code>，Space/Enter 键盘可切</li><li>联动显隐：开→显示「月份排序」下拉；关→隐藏之、显示「☑ 选本页可清理项」按钮</li><li><strong>月份排序</strong>下拉（仅分组模式）：新→旧（默认）/ 旧→新 / 占用大→小</li><li><strong>文件排序</strong>下拉（两种模式通用）：大小 双向 / 时间 双向 / 名称 A→Z</li></ul>
+<p><strong>第二层：时间阈值</strong></p>
+<ul><li>分段控件：30 天前 / 90 天前 / 180 天前（默认）/ 全部</li><li>文案随档位变化（如「仅清理 180 天前的文件，近期文件已自动上锁保护」；选「全部」时警示"含近期，请谨慎"）</li></ul>
+<p><strong>三层过滤叠加关系</strong>：<code>实际可见且可清理 = 类型筛选 ∩ 大小门槛 ∩ 时间阈值 ∩ 非孤儿 ∩ 非已清理 ∩ 非保护会话（attach）</code></p>
+<p><strong>切换筛选/阈值会清空已勾选项</strong>——有意为之，防止用户清理"当前看不见"的文件。</p>
+<h3>6.2 分组模式（月份桶卡片）</h3>
+<ul><li>每个月份桶一张卡片：📅 头像 + 月份名 +「月份桶」标签；描述行显示各类型数量 + 可清理数；右侧合计大小与文件数</li><li>点击头部展开：类型 tab（图片/视频/文件，带数量，随筛选收敛为单 tab）+「☐ 选本类可清理项」</li><li>文件网格：缩略图卡（类型图标渐变底）+ 完整相对路径（如 <code>2024-08/91c6524f….mp4</code>）+ 大小 + N 天前</li><li>可清理：正常态，点击勾选（圆勾变绿）</li><li>阈值内：灰显 + 🔒「近期」角标，不可点</li><li>已清理：🗑 图标灰显</li><li>空月份桶自动隐藏；全部为空时显示「当前筛选与阈值下暂无可清理月份」</li></ul>
+<h3>6.3 平铺模式（跨月份列表）</h3>
+<ul><li>单一列表，每行：复选框｜类型图标｜完整路径｜月份标签（蓝 tag）+ 来源会话（全局池）+ 天数｜大小</li><li>与分组模式共享勾选状态（同一 key 空间）与文件排序；「选本页可清理项」一键全选当前筛选下所有可清理项</li></ul>
+<h3>6.4 底部汇总栏</h3>
+<ul><li>勾选后毛玻璃滑出：合计大小（大字）+「已选 N 个文件 · 涉及 M 个月份桶」</li><li>「取消选择」「🗑 安全清理」（未选时禁用）</li></ul>
+<hr>
+<h2>七、孤儿与缓存</h2>
+<ul><li>顶部说明卡：「孤儿文件 = 无法再被微信引用的残留（如只有缩略图没有视频本体、聊天删除后遗留的哈希目录），清理零风险；缓存清理后微信按需重新下载」</li><li><strong>孤儿文件卡</strong>（有孤儿时显示）：橙色 🧩 头像 +「零风险」标签，文件网格带橙色「孤儿」角标</li><li><strong>安全缓存卡</strong>：Caches 资源缓存 / business 小程序与插件 / temp 临时文件，每项含路径 code + 用途说明 +「可再生成」标签</li><li>底部汇总栏：「已选 N 项（孤儿 X · 缓存 Y）」+「🗑 移入废纸篓」</li></ul>
+<hr>
+<h2>八、按会话（图片）—— 进阶视图</h2>
+<ul><li>顶部 <strong>caveat 横幅</strong>（能力边界如实告知）：微信 4.x 仅 <code>msg/attach</code> 图片按会话哈希组织可直接定位；视频/文件归属需只读查询微信数据库（结构未公开、涉隐私）。本视图仅覆盖图片类。</li><li>会话卡片：头像（映射成功显示昵称首字，未识别显示「?」）+ 名称或 <code>061d80f4…（未识别）</code> + 哈希摘要 code + 双数字（可清理/总占用）</li><li>星标 ☆：加入/移出保护名单（联动保护名单页与全部视图的过滤）</li><li>受保护会话：卡片降透明度 +「🛡 已保护」标签，展开后显示保护说明、无文件网格</li><li>未识别哈希：<strong>不假装知道是谁</strong>，如实显示哈希前缀 +「（未识别）」</li></ul>
+<hr>
+<h2>九、保护名单</h2>
+<ul><li>说明卡：保护会话的图片完全免疫清理；「按月份清理」是全局时间维度不受会话保护影响——保留某月文件请用时间阈值（两种维度边界明确）</li><li>名单行：头像 + 会话名 + 类型 + 图片占用 +「移出保护」</li><li>空态引导：「在按会话（图片）中点击 ☆ 即可加入」</li></ul>
+<hr>
+<h2>十、确认弹窗</h2>
+<ul><li>触发：按月份/按会话/孤儿与缓存 三个视图各自的清理按钮</li><li>内容：⚠️ 图标 +「确认清理这些微信文件？」+ 副标题（共 N 项 · 合计 X · 按月份/会话/孤儿分组明细）+ 绿色信任行「移入废纸篓 · 聊天记录不受影响 · 30 天内可恢复」</li><li>「取消」/「移入废纸篓」；Esc 与点击遮罩可关闭</li></ul>
+<h2>十一、清理进度与完成</h2>
+<ul><li>进度：绿色渐变进度条 + 逐项清单（完成项点亮 ✓，文件名由灰变黑）</li><li>完成：✓ 弹跳图标 + 大字「+X GB」+ 说明「聊天记录（db_storage）不受影响；如微信在运行建议重启释放内部缓存」</li><li>「↩︎ 撤销本次清理」（放回全部文件，各视图恢复原状 + toast）｜「查看体检结果」</li></ul>
+<hr>
+<h2>十二、全局交互规范</h2>
+<div class='tbl'><table><thead><tr><th>维度</th><th>规范</th></tr></thead><tbody><tr><td>反馈</td><td>增删改均有 toast（顶部滑入，2.6s 消失）；导航守卫也走 toast</td></tr><tr><td>键盘</td><td>全部勾选/卡片/开关支持 Tab + Space/Enter；Esc 关弹窗</td></tr><tr><td>无障碍</td><td><code>role="checkbox"/"switch"/"dialog"</code> + <code>aria-checked/aria-modal</code>；开关与图标按钮带 aria-label</td></tr><tr><td>动效</td><td>统一 180ms；视图淡入上移；卡片悬停上浮；横幅圆点呼吸动画</td></tr><tr><td>数字</td><td>容量/计数等宽字体（tabular-nums）；长文件名 RTL 方向技巧防路径前缀挤压</td></tr><tr><td>响应式</td><td>≤760px 隐藏侧边栏</td></tr></tbody></table></div>
+<hr>
+<h2>十三、核心状态流转</h2>
+<pre><code>数据体检（未体检）
+   │ 开始体检
+   ▼
+体检扫描 ──取消──▶ 数据体检
+   │ 完成（自动进入按月份）
+   ▼
+按月份清理 ◀──导航──▶ 孤儿与缓存 / 按会话（图片）/ 保护名单
+   │ 勾选 → 安全清理
+   ▼
+确认弹窗 ──取消──▶ 返回原视图
+   │ 确认
+   ▼
+清理进度 ──完成──▶ 完成页 ──撤销──▶ 原视图（恢复）
+                └─查看体检─▶ 数据体检（数字更新）</code></pre>
+<p><strong>保护与阈值的作用域</strong>：会话保护只作用于 attach 图片；月份维度由时间阈值控制——两个维度边界在保护名单页明确说明。</p>
+<hr>
+<h2>十四、原型边界说明</h2>
+<ol><li>文件清单为<strong>基于实测结构建模的演示数据</strong>（尺寸/月份对齐真实量级），非本机真实扫描结果</li><li>会话名映射在正式实现中需只读解析微信 SQLite（结构未公开）；原型用「已映射演示会话 + 未识别哈希」双色呈现</li><li>孤儿判定规则（缩略图无本体、哈希目录失效）在正式实现中需建立引用索引</li><li>清理仅更新视觉状态（灰显/移除），不真实删除；「继续清理缓存（安全）」模式未联动实际过滤逻辑（原型简化）</li><li>通配符、按类型全局聚合视图（v1.0 曾有）已按 4.x 结构取舍：类型维度并入月份桶 tab，不再单列</li></ol>
+</div>
+</body>
+</html>

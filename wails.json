@@ -1,0 +1,12 @@
+{
+  "$schema": "https://wails.io/schemas/config.v3.json",
+  "name": "wechat-file-keeper",
+  "outputfilename": "wechat-file-keeper",
+  "frontend:install": "",
+  "frontend:build": "",
+  "frontend:dev:watcher": "",
+  "frontend:dev:serverUrl": "",
+  "author": {
+    "name": "kennethfan"
+  }
+}

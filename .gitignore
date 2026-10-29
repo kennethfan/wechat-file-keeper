@@ -18,3 +18,7 @@ coverage.html
 
 # 测试用的临时 HOME
 .testhome/
+
+# Wails 生成物
+build/
+frontend/dist/bindings/
