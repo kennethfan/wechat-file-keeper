@@ -20,7 +20,7 @@ macOS 微信本地文件的管理工具：只读扫描微信留下的聊天文�
 
 - **不碰加密数据库**：谁发的文件、什么时候发的，都存在 `db_storage` 的加密 SQLite 里。本工具不读取、不解密，因此不提供会话归属（见 [ADR-0002](docs/adr/0002-no-conversation-attribution.md)）
 - **空间以 inode 为准**：实占按 inode 归并，名义大小仅作对照，避免把硬链接误报成可回收空间（见 [ADR-0001](docs/adr/0001-inode-based-space-accounting.md)）
-- **只移入废纸篓**：唯一的删除动作是 rename 到 `~/.Trash`，绝不 unlink；每次操作写 JSON 清单，支持撤销（见 [ADR-0003](docs/adr/0003-trash-via-rename.md)）
+- **通过 Finder 移入废纸篓**：与你自己在 Finder 里删除完全一致，废纸篓里有「放回原处」可还原；每次操作另写 JSON 清单，本工具内也能撤销（见 [ADR-0005](docs/adr/0005-finder-only-trash.md)）
 - **不建索引**：每次全量扫描，结果永远与当下磁盘一致（见 [ADR-0004](docs/adr/0004-no-persistent-index.md)）
 
 ## 构建
