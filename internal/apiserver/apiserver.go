@@ -101,6 +101,19 @@ func (h *Handler) serveAPI(rw http.ResponseWriter, req *http.Request) {
 		_ = decodeBody(req, &body)
 		writeResult(rw, true, h.svc.RevealFile(body.Path))
 
+	case "entries":
+		var q bridge.EntriesQuery
+		if err := decodeBody(req, &q); err != nil {
+			writeError(rw, http.StatusBadRequest, err.Error())
+			return
+		}
+		res, err := h.svc.ScanEntries(q)
+		writeResult(rw, res, err)
+
+	case "months":
+		res, err := h.svc.MonthSummary()
+		writeResult(rw, res, err)
+
 	case "libraries":
 		res, err := h.svc.Libraries()
 		writeResult(rw, res, err)

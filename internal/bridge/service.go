@@ -32,6 +32,10 @@ type Service struct {
 	lib account.Library
 	// thumbs 复用封面加载器，避免每次请求都重新解码。
 	thumbs *thumb.Loader
+	// cached 是上次扫描的条目，供分页查询复用。
+	cached []model.Entry
+	// cachedLib 是缓存对应的账号库路径。
+	cachedLib string
 }
 
 // New 创建服务实例。
@@ -91,8 +95,9 @@ type ScanResult struct {
 	WeChatRunning bool `json:"weChatRunning"`
 	// ScannedAt 是扫描完成时间。
 	ScannedAt string `json:"scannedAt"`
-	// Entries 是全部条目，前端按需筛选。
-	Entries []EntryDTO `json:"entries"`
+	// Entries 是全部条目。默认不返回（体积可达数 MB），
+	// 由 ScanEntries 按分类/月份分页拉取。
+	Entries []EntryDTO `json:"entries,omitempty"`
 }
 
 // LibraryDTO 是账号库信息。
@@ -189,7 +194,11 @@ func (s *Service) Scan(libPath string) (*ScanResult, error) {
 		})
 	}
 
-	out.Entries = s.toDTOs(res.Entries, lib.Path)
+	// 只返回汇总，不返回全量条目——14000 条会产生 7.6MB JSON，
+	// 浏览器解析要几秒，是界面卡顿的主因。
+	// 缓存扫描结果供后续分页查询复用，避免每次翻页都重扫。
+	s.cached = res.Entries
+	s.cachedLib = lib.Path
 	return out, nil
 }
 
@@ -546,4 +555,127 @@ func manifestDir() string {
 	}
 	return filepath.Join(home, "Library", "Application Support",
 		"wechat-file-keeper", "manifests")
+}
+
+// EntriesQuery 是分页查询条目的参数。
+type EntriesQuery struct {
+	// Category 是分类筛选，空表示全部。
+	Category string `json:"category"`
+	// Month 是月份筛选，空表示全部。
+	Month string `json:"month"`
+	// MinSize 是最小字节数。
+	MinSize int64 `json:"minSize"`
+	// OrphansOnly 表示只看孤儿缩略图。
+	OrphansOnly bool `json:"orphansOnly"`
+	// Offset 是起始下标。
+	Offset int `json:"offset"`
+	// Limit 是最多返回条数。
+	Limit int `json:"limit"`
+	// SortBy 是排序字段：size / month / name。
+	SortBy string `json:"sortBy"`
+	// Descending 表示降序。
+	Descending bool `json:"descending"`
+}
+
+// EntriesPage 是一页条目。
+type EntriesPage struct {
+	// Entries 是当前页的条目。
+	Entries []EntryDTO `json:"entries"`
+	// Total 是符合条件的总条数。
+	Total int `json:"total"`
+	// Offset 是当前起始下标。
+	Offset int `json:"offset"`
+	// HasMore 表示还有更多。
+	HasMore bool `json:"hasMore"`
+}
+
+// ScanEntries 分页查询条目。
+//
+// 前端只在需要时拉一页（默认 60 条），不再一次拿 14000 条。
+func (s *Service) ScanEntries(q EntriesQuery) (*EntriesPage, error) {
+	if s.cached == nil {
+		if _, err := s.Scan(""); err != nil {
+			return nil, err
+		}
+	}
+
+	// 筛选
+	matched := make([]model.Entry, 0, len(s.cached))
+	for _, e := range s.cached {
+		if q.OrphansOnly && !e.IsOrphanThumbnail {
+			continue
+		}
+		if q.Category != "" && string(e.Category) != q.Category {
+			continue
+		}
+		if q.Month != "" && e.Month != q.Month {
+			continue
+		}
+		if e.Size < q.MinSize {
+			continue
+		}
+		matched = append(matched, e)
+	}
+
+	// 排序
+	switch q.SortBy {
+	case "month":
+		sort.SliceStable(matched, func(i, j int) bool {
+			if q.Descending {
+				return matched[i].Month > matched[j].Month
+			}
+			return matched[i].Month < matched[j].Month
+		})
+	case "name":
+		sort.SliceStable(matched, func(i, j int) bool {
+			if q.Descending {
+				return filepath.Base(matched[i].Path) > filepath.Base(matched[j].Path)
+			}
+			return filepath.Base(matched[i].Path) < filepath.Base(matched[j].Path)
+		})
+	default:
+		sort.SliceStable(matched, func(i, j int) bool {
+			if q.Descending {
+				return matched[i].Size > matched[j].Size
+			}
+			return matched[i].Size < matched[j].Size
+		})
+	}
+
+	total := len(matched)
+	offset := q.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 60
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	return &EntriesPage{
+		Entries: s.toDTOs(matched[offset:end], s.cachedLib),
+		Total:   total,
+		Offset:  offset,
+		HasMore: end < total,
+	}, nil
+}
+
+// MonthSummary 返回按月份聚合的统计，供月份桶列表使用。
+//
+// 与 ScanResult.Months 的区别：这里带上该月的分类明细，
+// 前端不用为了画桶头而拉全量条目。
+func (s *Service) MonthSummary() ([]MonthDTO, error) {
+	if s.cached == nil {
+		if _, err := s.Scan(""); err != nil {
+			return nil, err
+		}
+	}
+	return s.summarizeMonths(s.cached), nil
 }
