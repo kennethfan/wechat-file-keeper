@@ -72,11 +72,12 @@ func runGUI() {
 		MinHeight: 600,
 		// 隐藏标题栏，让前端自绘 macOS 红绿灯区域。
 		Mac: application.MacWindow{
-			// 隐藏系统标题栏，由前端自绘（原型设计里标题栏与内容连成一体）。
-			// InvisibleTitleBarHeight 让顶部 44px 仍可拖动窗口，
-			// 否则隐藏标题栏后窗口就拖不动了。
+			// 保留系统标题栏与红绿灯按钮（关闭/最小化/最大化）。
+			// 只把标题文字隐藏，让前端自绘的标题与内容连成一体；
+			// InvisibleTitleBarHeight 让顶部 44px 可拖动窗口。
 			TitleBar: application.MacTitleBar{
-				Hide: true,
+				AppearsTransparent: true,
+				HideTitle:          true,
 			},
 			InvisibleTitleBarHeight: 44,
 			Backdrop:                application.MacBackdropTranslucent,

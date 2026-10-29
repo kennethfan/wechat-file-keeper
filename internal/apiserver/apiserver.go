@@ -20,6 +20,16 @@ type Handler struct {
 	assets http.Handler
 	// svc 是业务服务。
 	svc *bridge.Service
+	// trashMethod 是当前删除方式（rename / finder）。
+	trashMethod string
+}
+
+// currentMethod 返回当前删除方式，默认 rename。
+func (h *Handler) currentMethod() string {
+	if h.trashMethod == "" {
+		return "rename"
+	}
+	return h.trashMethod
 }
 
 // New 创建一个组合 handler。
@@ -64,6 +74,9 @@ func (h *Handler) serveAPI(rw http.ResponseWriter, req *http.Request) {
 		if err := decodeBody(req, &body); err != nil {
 			writeError(rw, http.StatusBadRequest, err.Error())
 			return
+		}
+		if body.Method == "" {
+			body.Method = h.currentMethod()
 		}
 		res, err := h.svc.Clean(body)
 		writeResult(rw, res, err)
@@ -113,6 +126,16 @@ func (h *Handler) serveAPI(rw http.ResponseWriter, req *http.Request) {
 	case "months":
 		res, err := h.svc.MonthSummary()
 		writeResult(rw, res, err)
+
+	case "trashMethod":
+		var body struct {
+			Method string `json:"method"`
+		}
+		_ = decodeBody(req, &body)
+		if body.Method != "" {
+			h.trashMethod = body.Method
+		}
+		writeResult(rw, map[string]string{"method": h.currentMethod()}, nil)
 
 	case "libraries":
 		res, err := h.svc.Libraries()

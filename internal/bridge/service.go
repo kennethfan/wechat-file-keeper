@@ -300,6 +300,9 @@ type CleanRequest struct {
 	Paths []string `json:"paths"`
 	// IncludeCache 表示允许清理图片缓存。
 	IncludeCache bool `json:"includeCache"`
+	// Method 是删除方式：rename（默认）或 finder。
+	// finder 模式会在系统废纸篓里保留「放回原处」。
+	Method string `json:"method"`
 }
 
 // CleanResult 是清理结果。
@@ -352,6 +355,9 @@ func (s *Service) Clean(req CleanRequest) (*CleanResult, error) {
 	})
 
 	cleaner := trash.New(manifestDir(), s.lib.Path)
+	if req.Method == string(trash.MethodFinder) {
+		cleaner.Method = trash.MethodFinder
+	}
 	m, applyErr := clean.Apply(plan, msgRoot, guard.IsWeChatRunning(), cleaner)
 
 	out := &CleanResult{

@@ -64,6 +64,8 @@ type Cleaner struct {
 	Library string
 	// Now 便于测试注入时间，为空时使用 time.Now。
 	Now func() time.Time
+	// Method 指定删除方式，空值等同 MethodRename。
+	Method Method
 }
 
 // New 创建使用默认位置的清理器。
@@ -95,6 +97,12 @@ func (c *Cleaner) Move(entries []model.Entry) (Manifest, error) {
 		CreatedAt: startedAt.Format(time.RFC3339),
 		Library:   c.Library,
 		Records:   make([]Record, 0, len(entries)),
+	}
+
+	// Finder 模式：交给 Finder 删除，系统会记录原路径。
+	// 失败时回退到 rename，保证清理动作不会因为授权问题完全不可用。
+	if c.Method == MethodFinder {
+		return c.moveViaFinder(entries, m, now)
 	}
 
 	if c.TrashDir == "" {
@@ -274,4 +282,51 @@ func listManifests(dir string) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// moveViaFinder 用 Finder 删除，并记录实际落入废纸篓的路径。
+//
+// Finder 模式下系统会保留「放回原处」，但代价是需要自动化授权。
+// 授权被拒时回退到 rename——用户至少还能通过清单撤销。
+func (c *Cleaner) moveViaFinder(entries []model.Entry, m Manifest, now func() time.Time) (Manifest, error) {
+	paths := make([]string, 0, len(entries))
+	byPath := make(map[string]model.Entry, len(entries))
+	for _, e := range entries {
+		paths = append(paths, e.Path)
+		byPath[e.Path] = e
+	}
+
+	if err := FinderMove(paths); err != nil {
+		// 回退到 rename：把 Method 清空后走原路径。
+		fallback := *c
+		fallback.Method = MethodRename
+		res, fbErr := fallback.Move(entries)
+		if fbErr != nil {
+			return res, fmt.Errorf("%v；回退 rename 也失败: %w", err, fbErr)
+		}
+		return res, nil
+	}
+
+	for _, p := range paths {
+		trashed, findErr := FindTrashPath(p)
+		if findErr != nil {
+			// 找不到落点也要记录，撤销时会被跳过并报告。
+			trashed = ""
+		}
+		e := byPath[p]
+		m.Records = append(m.Records, Record{
+			OriginalPath: p,
+			TrashedPath:  trashed,
+			Size:         e.Size,
+			Category:     string(e.Category),
+			TrashedAt:    now().Format(time.RFC3339),
+		})
+	}
+
+	if len(m.Records) > 0 {
+		if err := c.writeManifest(m); err != nil {
+			return m, fmt.Errorf("文件已删除但清单写入失败: %w", err)
+		}
+	}
+	return m, nil
 }
