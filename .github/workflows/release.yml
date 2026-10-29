@@ -39,7 +39,13 @@ jobs:
         run: go test ./... -count=1
 
       - name: 安装图标工具依赖
-        run: python3 -m pip install --quiet Pillow
+        # Homebrew 的 python3 是 externally-managed，不能直接 pip install。
+        # 建一个 venv 并把它的 bin 放进 PATH，make icon 里的 python3 就会用到它。
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install --quiet Pillow
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: 打包 .app
         run: make app VERSION=${{ steps.ver.outputs.version }}

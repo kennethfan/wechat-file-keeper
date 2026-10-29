@@ -28,3 +28,6 @@ build/
 # 全局 ignore 规则（~/.ignore_default）里的 dist/ 会误伤它。
 !frontend/dist/
 !frontend/dist/**
+
+# CI 里创建的虚拟环境
+.venv/
