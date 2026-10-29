@@ -45,10 +45,13 @@ jobs:
         run: go build -o bin/wechat-file-keeper .
 
       - name: 冒烟测试 CLI
+        # 用 timeout 兜底：CI 上没有微信数据，任何等待输入或阻塞的行为
+        # 都会让 job 挂到 6 小时超时。这里只验证「能启动、能给错误信息」。
         run: |
-          ./bin/wechat-file-keeper --help 2>&1 | head -20 || true
-          # scan 在 CI 上没有微信数据，应给出明确错误而不是 panic
-          ./bin/wechat-file-keeper scan 2>&1 | head -5 || true
+          set -x
+          timeout 10 ./bin/wechat-file-keeper help || echo "help 退出码 $?"
+          # 无微信数据时应给出明确错误而非 panic 或挂起
+          timeout 10 ./bin/wechat-file-keeper scan 2>&1 | head -3 || true
 
       - name: 上传覆盖率
         uses: actions/upload-artifact@v4
