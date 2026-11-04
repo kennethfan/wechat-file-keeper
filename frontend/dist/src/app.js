@@ -281,7 +281,7 @@ function fileGrid(entries) {
         data-category="${esc(e.category)}">
       <div class="thumb" style="background:${meta.grad}">
         ${orphan}
-        <span data-icon="${esc(e.path)}">${meta.icon}</span>
+        <span class="fc-icon">${meta.icon}</span>
         <span class="fc-check"></span>
       </div>
       <div class="fc-body">
@@ -350,6 +350,7 @@ async function loadOne({ card, entry }) {
   try {
     dataUrl = await call('PreviewImage', path);
   } catch {
+    // 预览失败就保留占位图标，不影响主流程
     dataUrl = null;
   }
 
@@ -369,11 +370,22 @@ function applyThumb(card, dataUrl) {
   if (!dataUrl || !card || !card.isConnected) return;
   const thumb = card.querySelector('.thumb');
   if (!thumb) return;
-  const icon = thumb.querySelector('[data-icon]');
-  if (!icon) return;
+
+  // 已经有图就不重复插入
+  if (thumb.querySelector('img.fc-thumb')) return;
+
   const img = document.createElement('img');
+  img.className = 'fc-thumb';
   img.src = dataUrl;
-  icon.replaceWith(img);
+  img.alt = '';
+
+  // 用 class 定位占位图标；找不到就直接追加，保证一定能显示。
+  const icon = thumb.querySelector('.fc-icon');
+  if (icon) {
+    icon.replaceWith(img);
+  } else {
+    thumb.appendChild(img);
+  }
 }
 
 // ---------- 按月份清理 ----------
