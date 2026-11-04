@@ -163,3 +163,52 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+func TestBuild_ProtectsDecodedAttachImage(t *testing.T) {
+	// 从 attach 解码出来的标准图片归入「图片」分类，但它仍是本地唯一副本，
+	// 必须和「图片缓存」一样需要显式授权。
+	e := model.Entry{
+		Path:     "/lib/msg/attach/5f408c53/2025-08/Img/abc_M.dat",
+		Size:     100,
+		Category: model.CategoryImage,
+	}
+
+	plan := Build(Options{Entries: []model.Entry{e}})
+
+	if len(plan.Selected) != 0 {
+		t.Fatalf("未授权时不应选中 attach 下的图片，实际选中 %d 项", len(plan.Selected))
+	}
+	if len(plan.Skipped) != 1 {
+		t.Fatalf("应跳过 1 项，实际 %d 项", len(plan.Skipped))
+	}
+}
+
+func TestBuild_AllowsVideoCoverWithoutAuth(t *testing.T) {
+	// 视频封面也归「图片」分类，但它可安全重建，不需要授权。
+	e := model.Entry{
+		Path:     "/lib/msg/video/2026-10/abc.jpg",
+		Size:     100,
+		Category: model.CategoryImage,
+	}
+
+	plan := Build(Options{Entries: []model.Entry{e}})
+
+	if len(plan.Selected) != 1 {
+		t.Fatalf("视频封面无需授权，应被选中，实际跳过 %d 项", len(plan.Skipped))
+	}
+}
+
+func TestBuild_AttachPathWithoutTrailingSlash(t *testing.T) {
+	// 用路径分量匹配而非字符串包含：目录名恰好含 attach 子串时不应误判。
+	e := model.Entry{
+		Path:     "/lib/msg/attachments/2025-08/x.dat",
+		Size:     100,
+		Category: model.CategoryImage,
+	}
+
+	plan := Build(Options{Entries: []model.Entry{e}})
+
+	if len(plan.Selected) != 1 {
+		t.Fatal("attachments 目录不是 attach，不应被当作微信图片缓存")
+	}
+}

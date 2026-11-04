@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kennethfan/wechat-file-keeper/internal/classify"
 	"github.com/kennethfan/wechat-file-keeper/internal/guard"
 	"github.com/kennethfan/wechat-file-keeper/internal/model"
 	"github.com/kennethfan/wechat-file-keeper/internal/trash"
@@ -95,11 +96,15 @@ func (p Plan) Describe() string {
 // isWeChatImage 判断条目是否属于微信图片缓存。
 //
 // 「图片」分类里既有视频封面（可安全重建），也有从 attach 解码出来的
-// 聊天图片（本地唯一副本）。只有后者需要授权，用路径判断而不是分类：
-// 位于 attach 目录下才算聊天图片缓存。
+// 聊天图片（本地唯一副本）。只有后者需要授权。
+//
+// 用 classify.IsImageCache 而不是自己拼字符串：它按路径分量精确匹配
+// attach 目录，与扫描阶段的分类判定共用同一套规则。之前用
+// strings.Contains(path, "/attach/") 有两个问题——结尾无斜杠时漏判、
+// 目录名恰好含 "attach" 子串时误判。
 func isWeChatImage(e model.Entry) bool {
 	if e.Category != model.CategoryImage && e.Category != model.CategoryImageCache {
 		return false
 	}
-	return strings.Contains(e.Path, "/attach/")
+	return classify.IsImageCache(e.Path)
 }
