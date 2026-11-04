@@ -7,7 +7,7 @@ BUILD   := bin
 PKG     := .
 DIST    := dist
 APP     := $(DIST)/微信文件管家.app
-VERSION := 0.1.0
+VERSION := 0.1.1
 
 # 正式签名用的开发者身份。留空则使用 ad-hoc 签名（够本机运行）。
 # 用法：make app SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
