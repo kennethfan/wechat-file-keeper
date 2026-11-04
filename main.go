@@ -47,7 +47,7 @@ func runGUI() {
 	service := bridge.New()
 
 	app := application.New(application.Options{
-		Name:        "微清 WeClean",
+		Name:        "微信文件管家",
 		Description: "macOS 微信文件清理工具",
 		Services: []application.Service{
 			application.NewService(service),
@@ -64,7 +64,7 @@ func runGUI() {
 	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "微清 WeClean — 微信文件清理",
+		Title: "微信文件管家",
 		// 与原型一致：1120x740，最小 900x600。
 		Width:     1120,
 		Height:    740,
