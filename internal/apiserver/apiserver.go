@@ -124,7 +124,12 @@ func (h *Handler) serveAPI(rw http.ResponseWriter, req *http.Request) {
 		writeResult(rw, res, err)
 
 	case "months":
-		res, err := h.svc.MonthSummary()
+		var q bridge.EntriesQuery
+		if err := decodeBody(req, &q); err != nil {
+			writeError(rw, http.StatusBadRequest, err.Error())
+			return
+		}
+		res, err := h.svc.MonthSummary(q)
 		writeResult(rw, res, err)
 
 	case "trashMethod":

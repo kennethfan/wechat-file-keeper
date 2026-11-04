@@ -13,7 +13,15 @@ const (
 	CategoryArchive Category = "压缩包"
 	// CategoryOther 未归入以上各类的聊天文件。
 	CategoryOther Category = "其他"
-	// CategoryImageCache 图片缓存（attach 下的 .dat）。
+	// CategoryImage 图片：能解码成标准图片格式的文件。
+	//
+	// 包括聊天视频封面（jpg/png），以及 attach 下那些实际是
+	// JPEG/PNG 的 .dat（微信把图片存成 .dat，但内容没加密）。
+	CategoryImage Category = "图片"
+	// CategoryImageCache 微信私有编码的图片缓存。
+	//
+	// attach 下那些无法解码的 .dat（文件头 07 08 56 32）。
+	// 与 CategoryImage 的区别是「能不能预览」，不是「在哪个目录」。
 	CategoryImageCache Category = "图片缓存"
 )
 

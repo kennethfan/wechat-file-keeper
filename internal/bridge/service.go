@@ -605,23 +605,7 @@ func (s *Service) ScanEntries(q EntriesQuery) (*EntriesPage, error) {
 		}
 	}
 
-	// 筛选
-	matched := make([]model.Entry, 0, len(s.cached))
-	for _, e := range s.cached {
-		if q.OrphansOnly && !e.IsOrphanThumbnail {
-			continue
-		}
-		if q.Category != "" && string(e.Category) != q.Category {
-			continue
-		}
-		if q.Month != "" && e.Month != q.Month {
-			continue
-		}
-		if e.Size < q.MinSize {
-			continue
-		}
-		matched = append(matched, e)
-	}
+	matched := filterEntries(s.cached, q)
 
 	// 排序
 	switch q.SortBy {
@@ -677,11 +661,42 @@ func (s *Service) ScanEntries(q EntriesQuery) (*EntriesPage, error) {
 //
 // 与 ScanResult.Months 的区别：这里带上该月的分类明细，
 // 前端不用为了画桶头而拉全量条目。
-func (s *Service) MonthSummary() ([]MonthDTO, error) {
+// MonthSummary 返回按月份聚合的统计。
+//
+// 接受与 ScanEntries 相同的筛选条件：月份桶的头部数字必须与桶内
+// 条目一致，否则会出现「桶头显示 322 个、展开后说没有文件」的矛盾。
+func (s *Service) MonthSummary(q EntriesQuery) ([]MonthDTO, error) {
 	if s.cached == nil {
 		if _, err := s.Scan(""); err != nil {
 			return nil, err
 		}
 	}
-	return s.summarizeMonths(s.cached), nil
+
+	// 复用条目筛选逻辑，保证两个接口口径一致
+	matched := filterEntries(s.cached, q)
+	return s.summarizeMonths(matched), nil
+}
+
+// filterEntries 按查询条件筛选条目。
+//
+// ScanEntries 与 MonthSummary 共用，保证「桶头数字」与「桶内条目」
+// 用的是同一套筛选规则。
+func filterEntries(entries []model.Entry, q EntriesQuery) []model.Entry {
+	matched := make([]model.Entry, 0, len(entries))
+	for _, e := range entries {
+		if q.OrphansOnly && !e.IsOrphanThumbnail {
+			continue
+		}
+		if q.Category != "" && string(e.Category) != q.Category {
+			continue
+		}
+		if q.Month != "" && e.Month != q.Month {
+			continue
+		}
+		if e.Size < q.MinSize {
+			continue
+		}
+		matched = append(matched, e)
+	}
+	return matched
 }

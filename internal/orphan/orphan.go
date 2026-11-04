@@ -37,11 +37,26 @@ func Mark(entries []model.Entry) {
 		if !e.IsThumbnail {
 			continue
 		}
-		base := strings.TrimSuffix(filepath.Base(e.Path), thumbnailSuffix)
-		key := filepath.Join(filepath.Dir(e.Path), base)
+		key := filepath.Join(filepath.Dir(e.Path), thumbBaseName(e.Path))
 		_, found := videoBase[key]
 		e.IsOrphanThumbnail = !found
 	}
+}
+
+// thumbBaseName 从封面图路径提取基名（不含扩展名与 _thumb 后缀）。
+//
+// 微信 4.x 有两种封面命名：<基名>_thumb.jpg 与 <基名>.jpg。
+// 只剥 _thumb.jpg 会让新版封面留下 ".jpg" 尾巴，基名对不上视频，
+// 于是被误判成孤儿。
+func thumbBaseName(path string) string {
+	base := filepath.Base(path)
+	// 先剥 _thumb 后缀（含扩展名）
+	if strings.HasSuffix(strings.ToLower(base), thumbnailSuffix) {
+		base = base[:len(base)-len(thumbnailSuffix)]
+		return base
+	}
+	// 否则只剥扩展名
+	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
 // videoBaseName 从视频路径提取基名（剥掉 .mp4 与可选的 _raw）。

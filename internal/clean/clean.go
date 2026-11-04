@@ -41,15 +41,16 @@ type SkipReason struct {
 
 // Build 生成清理计划，不触碰磁盘。
 //
-// 图片缓存需要显式授权：它是本地唯一副本，微信服务器有过期策略，
-// 删除后可能永久丢失，因此默认跳过并要求调用方明确传入 IncludeCache。
+// 微信图片需要显式授权：它们是本地唯一副本，微信服务器有过期策略，
+// 删除后可能永久丢失。这里覆盖两类——归入「图片」的可解码 .dat
+// 与归入「图片缓存」的私有编码 .dat，都属于聊天图片缓存。
 func Build(opts Options) Plan {
 	var plan Plan
 	for _, e := range opts.Entries {
-		if e.Category == model.CategoryImageCache && !opts.IncludeCache {
+		if isWeChatImage(e) && !opts.IncludeCache {
 			plan.Skipped = append(plan.Skipped, SkipReason{
 				Entry:  e,
-				Reason: "图片缓存需显式授权（--include-cache）",
+				Reason: "微信图片缓存需显式授权（--include-cache）",
 			})
 			continue
 		}
@@ -89,4 +90,16 @@ func (p Plan) Describe() string {
 		}
 	}
 	return b.String()
+}
+
+// isWeChatImage 判断条目是否属于微信图片缓存。
+//
+// 「图片」分类里既有视频封面（可安全重建），也有从 attach 解码出来的
+// 聊天图片（本地唯一副本）。只有后者需要授权，用路径判断而不是分类：
+// 位于 attach 目录下才算聊天图片缓存。
+func isWeChatImage(e model.Entry) bool {
+	if e.Category != model.CategoryImage && e.Category != model.CategoryImageCache {
+		return false
+	}
+	return strings.Contains(e.Path, "/attach/")
 }

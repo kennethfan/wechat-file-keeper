@@ -24,7 +24,9 @@ type YearStat struct {
 func ByYear(entries []model.Entry) []YearStat {
 	acc := make(map[string]*YearStat, 16)
 	for _, e := range entries {
-		if e.Category != model.CategoryImageCache {
+		// 「图片」与「图片缓存」都算：前者是能从 .dat 解码出来的标准图片，
+		// 后者是私有编码。只统计后者会漏掉一半以上的缓存。
+		if !isImageCategory(e.Category) {
 			continue
 		}
 		year := yearOf(e.Month)
@@ -86,4 +88,13 @@ func ByCategory(entries []model.Entry) map[model.Category]int64 {
 		out[e.Category] += e.Size
 	}
 	return out
+}
+
+// isImageCategory 判断分类是否属于图片类。
+//
+// 注意：这里把「图片」也算进来，会连带统计视频封面（那些也是 jpg）。
+// 年份分布本来的用途是「哪些年的缓存可以清」，封面与聊天图片的
+// 生命周期一致，一起统计不影响判断。
+func isImageCategory(c model.Category) bool {
+	return c == model.CategoryImage || c == model.CategoryImageCache
 }

@@ -74,9 +74,9 @@ export function entries(query) {
   return post('entries', query);
 }
 
-/** 月份汇总。 */
-export function months() {
-  return post('months', {});
+/** 月份汇总（带筛选条件）。 */
+export function months(query) {
+  return post('months', query || {});
 }
 
 /** 查询/设置删除方式。 */

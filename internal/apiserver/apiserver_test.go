@@ -170,3 +170,20 @@ func TestScan_DoesNotReturnAllEntries(t *testing.T) {
 			float64(rec.Body.Len())/1024/1024)
 	}
 }
+
+// post 构造一个 JSON POST 请求。
+func post(path, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
+// rec 构造一个响应记录器。
+func rec() *httptest.ResponseRecorder {
+	return httptest.NewRecorder()
+}
+
+// newService 构造一个服务实例。
+func newService() *bridge.Service {
+	return bridge.New()
+}

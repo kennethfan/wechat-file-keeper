@@ -107,3 +107,31 @@ func TestMark_RealFilesOnDisk(t *testing.T) {
 		t.Fatal("gone_thumb.jpg 无对应视频，应为孤儿")
 	}
 }
+
+func TestMark_PlainJpgCoverIsNotOrphan(t *testing.T) {
+	// 微信 4.x 新版封面直接是 <基名>.jpg，没有 _thumb 后缀。
+	// 之前只剥 _thumb.jpg，这类封面会留下 ".jpg" 尾巴导致基名对不上。
+	dir := "/lib/msg/video/2026-10"
+	entries := []model.Entry{
+		{Path: filepath.Join(dir, "9df687cfc7694058480d6716b983b163.mp4")},
+		{Path: filepath.Join(dir, "9df687cfc7694058480d6716b983b163.jpg"), IsThumbnail: true},
+	}
+	Mark(entries)
+
+	if entries[1].IsOrphanThumbnail {
+		t.Fatal("新版命名的封面图不应判为孤儿")
+	}
+}
+
+func TestThumbBaseName(t *testing.T) {
+	cases := map[string]string{
+		"/a/b/abc_thumb.jpg": "abc",
+		"/a/b/abc.jpg":       "abc",
+		"/a/b/abc.png":       "abc",
+	}
+	for in, want := range cases {
+		if got := thumbBaseName(in); got != want {
+			t.Fatalf("thumbBaseName(%q) = %q，期望 %q", in, got, want)
+		}
+	}
+}

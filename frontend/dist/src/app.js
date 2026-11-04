@@ -57,7 +57,7 @@ async function call(method, ...args) {
     case 'RevealFile': return await api.reveal(args[0]);
     case 'Libraries': return await api.libraries();
     case 'Entries': return await api.entries(args[0]);
-    case 'Months': return await api.months();
+    case 'Months': return await api.months(args[0]);
     case 'TrashMethod': return await api.trashMethod(args[0]);
     default: throw new Error(`未知接口 ${method}`);
   }
@@ -82,7 +82,8 @@ const CAT_META = {
   '文档': { icon: '📄', grad: 'linear-gradient(135deg,#eef1f7,#dfe5ef)' },
   '压缩包': { icon: '📦', grad: 'linear-gradient(135deg,#fdf0e6,#f7e2cf)' },
   '其他': { icon: '📎', grad: 'linear-gradient(135deg,#f4f4f6,#e8e8ec)' },
-  '图片缓存': { icon: '🖼', grad: 'linear-gradient(135deg,#f0eefb,#e2ddf6)' },
+  '图片': { icon: '🖼', grad: 'linear-gradient(135deg,#f0eefb,#e2ddf6)' },
+  '图片缓存': { icon: '🗄', grad: 'linear-gradient(135deg,#eceef2,#dfe3ea)' },
 };
 
 // ---------- 视图切换 ----------
@@ -219,6 +220,20 @@ const thumbPending = new Set();    // 正在加载的 path
 const pendingCards = new Map();    // path -> 等待同一张图的卡片
 const MAX_CONCURRENT = 4;
 let thumbActive = 0;
+
+/** 筛选条件变化后的统一处理。 */
+function onFilterChanged() {
+  // 清空选择：筛选变了，之前选中的条目可能已不可见，
+  // 留着会让用户「清掉看不见的文件」。
+  state.selected.clear();
+  state.selectedMeta.clear();
+  // 重置展开状态：月份桶会按新筛选重建，旧的展开记录已无意义。
+  state.expanded.clear();
+  state.expandedTouched = false;
+
+  renderMonths();
+  updateActionBar();
+}
 
 /** 切换一张卡片的选中状态，并记录元信息。 */
 function toggleSelect(card) {
@@ -406,20 +421,29 @@ async function renderMonths() {
   // 分组模式：先用月份汇总画桶头，展开时才拉该月条目
   let months;
   try {
-    months = await call('Months');
+    // 带上筛选条件：桶头数字必须与桶内条目一致，
+    // 否则会出现「桶头 322 个、展开后说没有文件」。
+    months = await call('Months', {
+      category: state.typeFilter === '全部' ? '' : state.typeFilter,
+      minSize: state.sizeFilter,
+    });
   } catch (err) {
     container.innerHTML = `<div class="empty">加载失败：${esc(err.message || err)}</div>`;
     return;
   }
 
-  if (!months || months.length === 0) {
+  // 只展示有内容的月份。后端已按筛选条件聚合，count 为 0 的不会出现，
+  // 这里再过滤一次兜底（例如数据竞争导致 count 与实际条目不同步）。
+  const visible = months.filter((m) => m.count > 0);
+
+  if (visible.length === 0) {
     container.innerHTML = '';
     $('monthEmpty').hidden = false;
     return;
   }
   $('monthEmpty').hidden = true;
 
-  container.innerHTML = months.map((m, idx) => {
+  container.innerHTML = visible.map((m, idx) => {
     // 首次进入展开最新三个月
     const open = state.expanded.has(m.month) || (!state.expandedTouched && idx < 3);
     return `<div class="grp-card${open ? ' open' : ''}" data-month="${esc(m.month)}">
@@ -476,8 +500,11 @@ async function renderMonths() {
 /** 加载某个月份桶的条目。 */
 async function loadMonthBody(month) {
   const body = document.querySelector(`[data-body="${CSS.escape(month)}"]`);
-  if (!body || body.dataset.loaded === '1') return;
-  body.dataset.loaded = '1';
+  if (!body) return;
+  // 不缓存 loaded 状态：renderMonths 每次重建 DOM，桶内容本就该按当前
+  // 筛选条件重新加载。之前用 dataset.loaded 标记，切筛选后仍显示旧内容。
+  if (body.dataset.loading === '1') return;
+  body.dataset.loading = '1';
   body.innerHTML = '<div class="empty">正在加载…</div>';
 
   try {
@@ -497,6 +524,8 @@ async function loadMonthBody(month) {
     bindFileCards(body);
   } catch (err) {
     body.innerHTML = `<div class="empty">加载失败：${esc(err.message || err)}</div>`;
+  } finally {
+    body.dataset.loading = '';
   }
 }
 
@@ -740,9 +769,7 @@ function bindEvents() {
     $('typeFilter').querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     state.typeFilter = btn.dataset.type;
-    state.selected.clear();  // 换筛选清空选择，避免清掉看不见的文件
-    renderMonths();
-    updateActionBar();
+    onFilterChanged();
   });
 
   // 大小筛选
@@ -752,9 +779,7 @@ function bindEvents() {
     $('sizeFilter').querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     state.sizeFilter = Number(btn.dataset.size);
-    state.selected.clear();
-    renderMonths();
-    updateActionBar();
+    onFilterChanged();
   });
 
   // 分组开关
