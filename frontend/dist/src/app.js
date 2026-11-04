@@ -691,12 +691,22 @@ function renderOrphanMore(remaining) {
       });
       state.orphanOffset = (state.orphanOffset || 0) + page.entries.length;
 
-      const grid = $('orphanGrid');
-      // 追加而不是重建，避免已加载的缩略图白加载
-      const tmp = document.createElement('div');
-      tmp.innerHTML = fileGrid(page.entries);
-      while (tmp.firstElementChild) grid.appendChild(tmp.firstElementChild);
-      bindFileCards(grid);
+      const host = $('orphanGrid');
+      // 追加到已有的网格里，而不是在容器下再塞一个网格——
+      // 多个并列 .file-grid 会各占一行，看起来像分栏错乱。
+      let grid = host.querySelector('.file-grid');
+      if (!grid) {
+        host.innerHTML = fileGrid(page.entries);
+        bindFileCards(host);
+      } else {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = fileGrid(page.entries);
+        const incoming = tmp.querySelector('.file-grid');
+        if (incoming) {
+          while (incoming.firstElementChild) grid.appendChild(incoming.firstElementChild);
+        }
+        bindFileCards(grid);
+      }
 
       renderOrphanMore(page.total - state.orphanOffset);
     } catch (err) {
