@@ -270,6 +270,21 @@ main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
   text-overflow:ellipsis;direction:rtl;text-align:left;
 }
 .fc-meta{display:flex;justify-content:space-between;font-size:10.5px;color:var(--fg-2);margin-top:2px}
+/* 卡片操作按钮：默认隐藏，hover 或选中时显示 */
+.fc-actions{
+  display:flex;gap:5px;margin-top:6px;
+  opacity:0;transition:opacity var(--tr);
+}
+.fc:hover .fc-actions,
+.fc.sel .fc-actions{opacity:1}
+.fc-act{
+  flex:1;padding:3px 0;border-radius:6px;font-size:10.5px;font-weight:600;
+  background:rgba(0,0,0,.05);color:var(--fg-2);
+  transition:all var(--tr);
+}
+.fc-act:hover{background:rgba(7,193,96,.12);color:var(--accent-deep)}
+.fc-act:active{transform:scale(.97)}
+
 .badge-orphan{
   position:absolute;top:6px;left:6px;font-size:9.5px;font-weight:700;
   background:var(--warn);color:#fff;border-radius:4px;padding:1px 5px;
