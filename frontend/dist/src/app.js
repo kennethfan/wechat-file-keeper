@@ -226,8 +226,28 @@ const thumbCache = new Map();      // path -> dataURL | null
 const thumbQueue = [];             // 待加载任务
 const thumbPending = new Set();    // 正在加载的 path
 const pendingCards = new Map();    // path -> 等待同一张图的卡片
-const MAX_CONCURRENT = 4;
+// 缩略图并发上限。后端已把图缩到 336px 并用 JPEG 编码，
+// 单张数据量从数百 KB 降到几十 KB，可以放宽到 8。
+const MAX_CONCURRENT = 8;
 let thumbActive = 0;
+
+/** 用系统默认程序打开文件。 */
+async function openEntry(path) {
+  try {
+    await call('OpenFile', path);
+  } catch (err) {
+    toast('无法打开：' + (err?.message || err));
+  }
+}
+
+/** 在 Finder 中定位文件。 */
+async function revealEntry(path) {
+  try {
+    await call('RevealFile', path);
+  } catch (err) {
+    toast('无法定位：' + (err?.message || err));
+  }
+}
 
 /** 跳到「按月份清理」并选中指定分类。 */
 function goToCategory(category) {
@@ -342,6 +362,10 @@ function fileGrid(entries) {
           <span>${esc(e.sizeText)}</span>
           <span>${e.daysAgo > 0 ? e.daysAgo + ' 天前' : '今天'}</span>
         </div>
+        <div class="fc-actions">
+          <button class="fc-act" data-open title="用系统程序打开">打开</button>
+          <button class="fc-act" data-reveal title="在 Finder 中显示">定位</button>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -354,6 +378,16 @@ function bindFileCards(root) {
   const scope = root || document;
   scope.querySelectorAll('.fc[data-path]').forEach((card) => {
     card.addEventListener('click', () => toggleSelect(card));
+
+    // 卡片上的操作按钮：阻止冒泡，避免误触勾选
+    card.querySelector('[data-open]')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openEntry(card.dataset.path);
+    });
+    card.querySelector('[data-reveal]')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      revealEntry(card.dataset.path);
+    });
 
     if (card.dataset.previewable === '1') {
       enqueueThumb(card, { path: card.dataset.path, name: card.dataset.name || '' });
@@ -482,7 +516,9 @@ async function renderMonths() {
 
   container.innerHTML = visible.map((m, idx) => {
     // 首次进入展开最新三个月
-    const open = state.expanded.has(m.month) || (!state.expandedTouched && idx < 3);
+    // 首次只展开最新一个月：3 个月同时展开会产生 180 个缩略图请求，
+    // 首屏明显变慢。用户想看别的月份点一下即可。
+    const open = state.expanded.has(m.month) || (!state.expandedTouched && idx < 1);
     return `<div class="grp-card${open ? ' open' : ''}" data-month="${esc(m.month)}">
       <div class="grp-head">
         <span class="grp-ico">📅</span>
