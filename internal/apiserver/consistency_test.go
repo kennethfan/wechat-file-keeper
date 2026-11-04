@@ -57,3 +57,76 @@ func TestMonthSummaryMatchesEntries(t *testing.T) {
 		t.Fatal("假账号库里有文档，筛选后不应为 0")
 	}
 }
+
+// TestEntriesSorting 验证三种排序字段与方向。
+func TestEntriesSorting(t *testing.T) {
+	h := New(staticStub(), newService())
+	lib := fakeLibrary(t)
+	h.ServeHTTP(httptest.NewRecorder(), post("/api/scan", `{"libPath":"`+lib+`"}`))
+
+	cases := []struct {
+		name  string
+		query string
+		check func(t *testing.T, entries []map[string]any)
+	}{
+		{
+			name:  "按大小降序",
+			query: `{"sortBy":"size","descending":true,"limit":50}`,
+			check: func(t *testing.T, es []map[string]any) {
+				for i := 1; i < len(es); i++ {
+					prev := es[i-1]["size"].(float64)
+					cur := es[i]["size"].(float64)
+					if prev < cur {
+						t.Fatalf("第 %d 项 %v 小于第 %d 项 %v，不是降序", i-1, prev, i, cur)
+					}
+				}
+			},
+		},
+		{
+			name:  "按大小升序",
+			query: `{"sortBy":"size","descending":false,"limit":50}`,
+			check: func(t *testing.T, es []map[string]any) {
+				for i := 1; i < len(es); i++ {
+					prev := es[i-1]["size"].(float64)
+					cur := es[i]["size"].(float64)
+					if prev > cur {
+						t.Fatalf("第 %d 项 %v 大于第 %d 项 %v，不是升序", i-1, prev, i, cur)
+					}
+				}
+			},
+		},
+		{
+			name:  "按名称升序",
+			query: `{"sortBy":"name","descending":false,"limit":50}`,
+			check: func(t *testing.T, es []map[string]any) {
+				for i := 1; i < len(es); i++ {
+					prev := es[i-1]["name"].(string)
+					cur := es[i]["name"].(string)
+					if prev > cur {
+						t.Fatalf("第 %d 项 %q 大于第 %d 项 %q，不是升序", i-1, prev, i, cur)
+					}
+				}
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, post("/api/entries", c.query))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("应成功，实际 %d: %s", rec.Code, rec.Body.String())
+			}
+			var page struct {
+				Entries []map[string]any `json:"entries"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if len(page.Entries) < 2 {
+				t.Skip("假账号库条目太少，无法验证排序")
+			}
+			c.check(t, page.Entries)
+		})
+	}
+}

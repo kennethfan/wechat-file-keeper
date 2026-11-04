@@ -147,6 +147,12 @@ window.addEventListener('unhandledrejection', function (ev) {
             <button class="seg-btn" data-size="10485760">≥10MB</button>
             <button class="seg-btn" data-size="104857600">≥100MB</button>
           </div>
+          <div class="seg" id="sortSelect">
+            <button class="seg-btn active" data-sort="size" data-desc="1">大小 ↓</button>
+            <button class="seg-btn" data-sort="size" data-desc="0">大小 ↑</button>
+            <button class="seg-btn" data-sort="month" data-desc="1">时间 ↓</button>
+            <button class="seg-btn" data-sort="name" data-desc="0">名称 ↑</button>
+          </div>
           <label class="switch-row">
             <span class="switch on" id="groupSwitch" role="switch" aria-checked="true" tabindex="0">
               <span class="knob"></span>

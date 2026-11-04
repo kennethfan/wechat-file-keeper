@@ -28,6 +28,8 @@ const state = {
   view: 'overview',     // 当前视图
   typeFilter: '全部',    // 类型筛选
   sizeFilter: 0,        // 大小门槛（字节）
+  sortBy: 'size',       // 排序字段：size / month / name
+  sortDesc: true,       // 是否降序
   grouped: true,        // 是否按月份分组
   selected: new Set(),  // 已勾选的绝对路径
   selectedMeta: new Map(), // path -> { size, month, category, name }
@@ -587,8 +589,8 @@ async function loadMonthBody(month) {
       category: state.typeFilter === '全部' ? '' : state.typeFilter,
       limit: MAX_CARDS,
       offset: 0,
-      sortBy: 'size',
-      descending: true,
+      sortBy: state.sortBy,
+      descending: state.sortDesc,
     });
     body.innerHTML = fileGrid(page.entries) +
       (page.hasMore
@@ -611,8 +613,8 @@ async function renderFlat() {
       minSize: state.sizeFilter,
       limit: 60,
       offset: 0,
-      sortBy: 'size',
-      descending: true,
+      sortBy: state.sortBy,
+      descending: state.sortDesc,
     });
 
     $('monthEmpty').hidden = page.total > 0;
@@ -647,8 +649,8 @@ async function renderOrphans() {
       orphansOnly: true,
       limit: MAX_CARDS,
       offset: 0,
-      sortBy: 'size',
-      descending: true,
+      sortBy: state.sortBy,
+      descending: state.sortDesc,
     });
 
     $('orphanEmpty').hidden = page.total > 0;
@@ -684,8 +686,8 @@ function renderOrphanMore(remaining) {
         orphansOnly: true,
         limit: MAX_CARDS,
         offset: state.orphanOffset || 0,
-        sortBy: 'size',
-        descending: true,
+        sortBy: state.sortBy,
+        descending: state.sortDesc,
       });
       state.orphanOffset = (state.orphanOffset || 0) + page.entries.length;
 
@@ -852,6 +854,17 @@ function bindEvents() {
     $('sizeFilter').querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('active'));
     btn.classList.add('active');
     state.sizeFilter = Number(btn.dataset.size);
+    onFilterChanged();
+  });
+
+  // 排序
+  $('sortSelect').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.seg-btn');
+    if (!btn) return;
+    $('sortSelect').querySelectorAll('.seg-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.sortBy = btn.dataset.sort;
+    state.sortDesc = btn.dataset.desc === '1';
     onFilterChanged();
   });
 

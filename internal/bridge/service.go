@@ -610,11 +610,23 @@ func (s *Service) ScanEntries(q EntriesQuery) (*EntriesPage, error) {
 	// 排序
 	switch q.SortBy {
 	case "month":
+		// 月份是 YYYY-MM 格式，字符串比较等价于时间比较。
+		// 空月份（解析不出月份的条目）固定排最后，避免混在时间序列里。
 		sort.SliceStable(matched, func(i, j int) bool {
-			if q.Descending {
-				return matched[i].Month > matched[j].Month
+			mi, mj := matched[i].Month, matched[j].Month
+			if mi == "" && mj == "" {
+				return false
 			}
-			return matched[i].Month < matched[j].Month
+			if mi == "" {
+				return false
+			}
+			if mj == "" {
+				return true
+			}
+			if q.Descending {
+				return mi > mj
+			}
+			return mi < mj
 		})
 	case "name":
 		sort.SliceStable(matched, func(i, j int) bool {
