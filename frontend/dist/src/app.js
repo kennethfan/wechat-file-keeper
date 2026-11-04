@@ -171,16 +171,24 @@ function renderOverview() {
   $('catCards').innerHTML = s.categories.map((c) => {
     const meta = CAT_META[c.name] || { icon: '📎' };
     const pct = Math.round((c.bytes / max) * 100);
-    return `<div class="card">
+    return `<button class="card card-link" data-goto-cat="${esc(c.name)}">
       <div class="card-head">
         <span class="card-ico">${meta.icon}</span>
         <span class="card-name">${esc(c.name)}</span>
+        <span class="card-arrow">›</span>
       </div>
       <div class="card-num">${esc(c.bytesText)}</div>
       <div class="card-sub">${c.count.toLocaleString()} 个文件</div>
       <div class="card-bar"><i style="width:${pct}%"></i></div>
-    </div>`;
+    </button>`;
   }).join('');
+
+  // 分类卡片点击 → 跳到按月份清理并选中该分类
+  $('catCards').querySelectorAll('[data-goto-cat]').forEach((card) => {
+    card.addEventListener('click', () => {
+      goToCategory(card.dataset.gotoCat);
+    });
+  });
 
   // 入口瓦片
   $('entryTiles').hidden = false;
@@ -220,6 +228,35 @@ const thumbPending = new Set();    // 正在加载的 path
 const pendingCards = new Map();    // path -> 等待同一张图的卡片
 const MAX_CONCURRENT = 4;
 let thumbActive = 0;
+
+/** 跳到「按月份清理」并选中指定分类。 */
+function goToCategory(category) {
+  // 同步筛选按钮的高亮状态
+  const seg = $('typeFilter');
+  let matched = false;
+  seg.querySelectorAll('.seg-btn').forEach((b) => {
+    const on = b.dataset.type === category;
+    b.classList.toggle('active', on);
+    if (on) matched = true;
+  });
+
+  // 分类名不在筛选按钮里（理论上不会发生）就退回「全部」
+  if (!matched) {
+    seg.querySelector('.seg-btn[data-type="全部"]')?.classList.add('active');
+    state.typeFilter = '全部';
+  } else {
+    state.typeFilter = category;
+  }
+
+  // 先切视图（switchView 内部会调 renderMonths），再更新底部栏。
+  // 不调 onFilterChanged：它会重复渲染一次。
+  state.selected.clear();
+  state.selectedMeta.clear();
+  state.expanded.clear();
+  state.expandedTouched = false;
+  updateActionBar();
+  switchView('months');
+}
 
 /** 筛选条件变化后的统一处理。 */
 function onFilterChanged() {

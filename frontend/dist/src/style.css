@@ -156,6 +156,19 @@ main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
   padding:15px 17px;box-shadow:var(--shadow-card);transition:all var(--tr);
 }
 .card:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.10)}
+
+/* 可点击的分类卡片：整块是按钮，hover 时描边变绿并露出箭头 */
+.card-link{
+  display:block;width:100%;text-align:left;cursor:pointer;
+  font:inherit;color:inherit;
+}
+.card-link:hover{border-color:rgba(7,193,96,.45);background:rgba(7,193,96,.03)}
+.card-link:active{transform:translateY(0)}
+.card-arrow{
+  margin-left:auto;color:var(--fg-3);font-size:17px;line-height:1;
+  transition:all var(--tr);
+}
+.card-link:hover .card-arrow{color:var(--accent);transform:translateX(2px)}
 .card-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .card-ico{font-size:16px}
 .card-name{font-size:13px;font-weight:600}
