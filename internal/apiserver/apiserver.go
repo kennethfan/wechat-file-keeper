@@ -123,6 +123,10 @@ func (h *Handler) serveAPI(rw http.ResponseWriter, req *http.Request) {
 		res, err := h.svc.ScanEntries(q)
 		writeResult(rw, res, err)
 
+	case "refresh":
+		res, err := h.svc.RefreshSummary()
+		writeResult(rw, res, err)
+
 	case "months":
 		var q bridge.EntriesQuery
 		if err := decodeBody(req, &q); err != nil {

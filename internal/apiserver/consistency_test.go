@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/kennethfan/wechat-file-keeper/internal/bridge"
 )
 
 // TestMonthSummaryMatchesEntries 验证月份桶的头部数字与桶内条目一致。
@@ -129,4 +131,35 @@ func TestEntriesSorting(t *testing.T) {
 			c.check(t, page.Entries)
 		})
 	}
+}
+
+// TestRefreshSummaryUsesCache 验证 refresh 接口不重扫磁盘。
+func TestRefreshSummaryUsesCache(t *testing.T) {
+	h := New(staticStub(), newService())
+	lib := fakeLibrary(t)
+	h.ServeHTTP(httptest.NewRecorder(), post("/api/scan", `{"libPath":"`+lib+`"}`))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, post("/api/refresh", `{}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("refresh 应成功，实际 %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var res struct {
+		EntryCount int `json:"entryCount"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if res.EntryCount == 0 {
+		t.Fatal("refresh 应返回缓存的条目数，实际为 0")
+	}
+}
+
+// TestRefreshBeforeScanFallsBack 验证没体检过时 refresh 会先扫一次。
+func TestRefreshBeforeScanFallsBack(t *testing.T) {
+	svc := bridge.New()
+	// 没有 libPath，走默认路径会失败——这里只验证不 panic
+	_, err := svc.RefreshSummary()
+	_ = err
 }

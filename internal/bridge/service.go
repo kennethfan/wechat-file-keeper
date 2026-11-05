@@ -160,46 +160,70 @@ func (s *Service) Scan(libPath string) (*ScanResult, error) {
 		return nil, fmt.Errorf("扫描失败：%w", err)
 	}
 
-	out := &ScanResult{
-		Library:           LibraryDTO{WXID: lib.WXID, Path: lib.Path},
-		Total:             res.Space.Actual,
-		Nominal:           res.Space.Nominal,
-		HardlinkOvercount: res.Space.HardlinkOvercount,
-		TotalText:         humanBytes(res.Space.Actual),
-		EntryCount:        res.Space.EntryCount,
-		DurationMs:        res.Duration.Milliseconds(),
-		WeChatRunning:     guard.IsWeChatRunning(),
-		ScannedAt:         time.Now().Format(time.RFC3339),
-	}
-
-	out.Categories = s.summarizeCategories(res.Entries)
-	out.Months = s.summarizeMonths(res.Entries)
-
-	orphanCount, orphanBytes := cachestat.OrphanTotal(res.Entries)
-	out.Orphans = OrphanDTO{
-		Count: orphanCount, Bytes: orphanBytes, BytesTxt: humanBytes(orphanBytes),
-	}
-
-	if groups, dupErr := (dup.Finder{}).Find(res.Entries); dupErr == nil {
-		out.Duplicates = DuplicateDTO{
-			Groups:    len(groups),
-			Bytes:     dup.TotalReclaimable(groups),
-			BytesText: humanBytes(dup.TotalReclaimable(groups)),
-		}
-	}
-
-	for _, y := range cachestat.ByYear(res.Entries) {
-		out.CacheYears = append(out.CacheYears, YearDTO{
-			Year: y.Year, Count: y.Count, Bytes: y.Bytes, BytesTxt: humanBytes(y.Bytes),
-		})
-	}
-
-	// 只返回汇总，不返回全量条目——14000 条会产生 7.6MB JSON，
-	// 浏览器解析要几秒，是界面卡顿的主因。
+	out := s.buildSummary(res.Entries, lib, res.Duration, true)
 	// 缓存扫描结果供后续分页查询复用，避免每次翻页都重扫。
 	s.cached = res.Entries
 	s.cachedLib = lib.Path
 	return out, nil
+}
+
+// RefreshSummary 用已缓存的条目重建汇总，不重新扫描磁盘。
+//
+// 清理或撤销后调用：磁盘内容已变，但变化仅限于刚处理的那些条目，
+// 后端缓存里已经同步。重扫 1.4 万文件要 0.6~2.2 秒，这里只需几毫秒。
+func (s *Service) RefreshSummary() (*ScanResult, error) {
+	if s.cached == nil {
+		return s.Scan("")
+	}
+	lib, err := s.resolveLibrary(s.cachedLib)
+	if err != nil {
+		return nil, err
+	}
+	// 跳过真重复分析：它对全量条目算 SHA-256，本机要 1 秒以上。
+	// 清理后用户关心的是「空间变了多少」，重复分析下次体检时再算。
+	return s.buildSummary(s.cached, lib, 0, false), nil
+}
+
+// buildSummary 由条目列表构建汇总结果。
+func (s *Service) buildSummary(entries []model.Entry, lib account.Library, dur time.Duration, withDup bool) *ScanResult {
+	space := scan.Summarize(entries)
+
+	out := &ScanResult{
+		Library:           LibraryDTO{WXID: lib.WXID, Path: lib.Path},
+		Total:             space.Actual,
+		Nominal:           space.Nominal,
+		HardlinkOvercount: space.HardlinkOvercount,
+		TotalText:         humanBytes(space.Actual),
+		EntryCount:        space.EntryCount,
+		DurationMs:        dur.Milliseconds(),
+		WeChatRunning:     guard.IsWeChatRunning(),
+		ScannedAt:         time.Now().Format(time.RFC3339),
+	}
+
+	out.Categories = s.summarizeCategories(entries)
+	out.Months = s.summarizeMonths(entries)
+
+	orphanCount, orphanBytes := cachestat.OrphanTotal(entries)
+	out.Orphans = OrphanDTO{
+		Count: orphanCount, Bytes: orphanBytes, BytesTxt: humanBytes(orphanBytes),
+	}
+
+	if withDup {
+		if groups, dupErr := (dup.Finder{}).Find(entries); dupErr == nil {
+			out.Duplicates = DuplicateDTO{
+				Groups:    len(groups),
+				Bytes:     dup.TotalReclaimable(groups),
+				BytesText: humanBytes(dup.TotalReclaimable(groups)),
+			}
+		}
+	}
+
+	for _, y := range cachestat.ByYear(entries) {
+		out.CacheYears = append(out.CacheYears, YearDTO{
+			Year: y.Year, Count: y.Count, Bytes: y.Bytes, BytesTxt: humanBytes(y.Bytes),
+		})
+	}
+	return out
 }
 
 // summarizeCategories 按分类汇总。
@@ -327,9 +351,15 @@ func (s *Service) Clean(req CleanRequest) (*CleanResult, error) {
 		return nil, fmt.Errorf("请先完成数据体检")
 	}
 
-	res, err := scan.New(s.lib.Path).Run()
-	if err != nil {
-		return nil, fmt.Errorf("重新扫描失败：%w", err)
+	// 用体检时缓存的条目，不再全量重扫。
+	//
+	// 之前每次清理都调 scan.Run()，本机 1.4 万文件要 0.6~2.2 秒；
+	// 加上前端清理后还要再扫一次，用户点确认后要等 2~4 秒才看到变化。
+	// 缓存的条目足够确定文件大小与分类，缺失的会在 Move 时报错。
+	if s.cached == nil {
+		if _, err := s.Scan(""); err != nil {
+			return nil, fmt.Errorf("扫描失败：%w", err)
+		}
 	}
 
 	want := make(map[string]struct{}, len(req.Paths))
@@ -338,7 +368,7 @@ func (s *Service) Clean(req CleanRequest) (*CleanResult, error) {
 	}
 
 	var picked []model.Entry
-	for _, e := range res.Entries {
+	for _, e := range s.cached {
 		if _, ok := want[e.Path]; ok {
 			picked = append(picked, e)
 		}
@@ -369,6 +399,22 @@ func (s *Service) Clean(req CleanRequest) (*CleanResult, error) {
 	for _, sk := range plan.Skipped {
 		out.SkippedReasons = append(out.SkippedReasons,
 			fmt.Sprintf("%s：%s", filepath.Base(sk.Entry.Path), sk.Reason))
+	}
+
+	// 从缓存里摘掉已移走的条目：后续分页与月份汇总要立即反映变化，
+	// 否则用户翻页还会看到刚删掉的文件。
+	if len(m.Records) > 0 {
+		moved := make(map[string]struct{}, len(m.Records))
+		for _, r := range m.Records {
+			moved[r.OriginalPath] = struct{}{}
+		}
+		kept := s.cached[:0]
+		for _, e := range s.cached {
+			if _, gone := moved[e.Path]; !gone {
+				kept = append(kept, e)
+			}
+		}
+		s.cached = kept
 	}
 
 	// 部分失败仍返回已成功的部分，同时把错误带回前端提示。

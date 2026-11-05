@@ -83,3 +83,8 @@ export function months(query) {
 export function trashMethod(method) {
   return post('trashMethod', { method: method || '' });
 }
+
+/** 用后端缓存重建汇总，不重扫磁盘（清理/撤销后调用）。 */
+export function refresh() {
+  return post('refresh', {});
+}

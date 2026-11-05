@@ -60,6 +60,7 @@ async function call(method, ...args) {
     case 'Libraries': return await api.libraries();
     case 'Entries': return await api.entries(args[0]);
     case 'Months': return await api.months(args[0]);
+    case 'Refresh': return await api.refresh();
     case 'TrashMethod': return await api.trashMethod(args[0]);
     default: throw new Error(`未知接口 ${method}`);
   }
@@ -743,6 +744,22 @@ function updateActionBar() {
   if (orphanBtn) orphanBtn.disabled = false;
 }
 
+/** 清理后的轻量刷新：只更新汇总与当前视图，不重扫。 */
+async function refreshAfterClean() {
+  try {
+    // 用后端缓存重建汇总，不重扫磁盘（几毫秒 vs 0.6~2.2 秒）
+    const res = await call('Refresh');
+    state.scan = res;
+    renderOverview();
+    updateSidebar();
+    updateBanner(res.weChatRunning);
+  } catch {
+    // 汇总刷新失败不影响清理结果，静默忽略
+  }
+  // 当前视图重新渲染（内部会按需拉条目）
+  switchView(state.view);
+}
+
 /** 撤销上一次清理。 */
 async function doUndo() {
   const btn = $('btnUndo');
@@ -809,10 +826,13 @@ async function doClean() {
         method: 'finder',
       });
       state.selected.clear();
+      state.selectedMeta.clear();
 
-      // 清理后重新体检让数字与实际一致，但要保留清理结果的提示，
-      // 否则「已移入废纸篓 N 项」会被「体检完成」立刻盖掉。
-      await doScan(true);
+      // 不做整页重扫：Clean 已经把条目从后端缓存里摘掉，
+      // 这里只需拉一次汇总数字并刷新当前视图。
+      // 之前调 doScan(true) 会重扫 1.4 万文件（0.6~2.2 秒）+ 重建整个月份桶
+      // + 重发一批缩略图请求，用户点确认后要等好几秒。
+      await refreshAfterClean();
       // 清理后启用撤销入口，让用户知道还能反悔
       if (result.moved > 0) {
         $('btnUndo').disabled = false;
